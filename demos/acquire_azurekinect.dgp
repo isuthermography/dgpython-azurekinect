@@ -1,0 +1,23 @@
+from dataguzzler_python import dgpy
+
+include(dgpy,"dgpy_startup.dpi") # If you get a NameError here, be sure you are executing this file with dataguzzler-python
+
+import spatialnde2 as snde
+include(snde,"recdb.dpi")
+import dgpython_azurekinect as ak
+
+import time
+
+k4a = ak.K4A("k4a",recdb, { "/k4achan": None })
+
+#time.sleep(2)
+monitor = recdb.start_monitoring_globalrevs()
+monitor.wait_next(recdb) # Ignore any blank initial frame
+
+for cnt in range(500):
+    globalrev = monitor.wait_next(recdb)
+
+    chan_data = globalrev.get_recording("/k4achan").cast_to_ndarray()
+    print(chan_data.data())
+    pass
+monitor.close(recdb) # Stop monitoring. If you fail to do this data will start accumulating and eventually run you out of file descriptors or fill up memory

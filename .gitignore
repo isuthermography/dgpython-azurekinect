@@ -1,0 +1,9 @@
+__pycache__
+*.egg-info
+*~
+*.bak
+build
+dist
+dataguzzler_python.egg-info
+dgpython_azurekinect/kinect.cpp
+setupcmd.sh
