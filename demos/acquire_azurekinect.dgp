@@ -17,7 +17,7 @@ monitor.wait_next(recdb) # Ignore any blank initial frame
 for cnt in range(500):
     globalrev = monitor.wait_next(recdb)
 
-    chan_data = globalrev.get_recording("/k4achan").cast_to_ndarray()
+    chan_data = globalrev.get_recording_ref("/k4achan")
     print(chan_data.data())
     pass
 monitor.close(recdb) # Stop monitoring. If you fail to do this data will start accumulating and eventually run you out of file descriptors or fill up memory

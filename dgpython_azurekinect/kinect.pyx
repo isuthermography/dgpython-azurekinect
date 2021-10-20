@@ -806,7 +806,7 @@ class K4A(object,metaclass=dgpy_Module):
         config.depth_mode = K4A_DEPTH_MODE_NFOV_UNBINNED
         config.wired_sync_mode = K4A_WIRED_SYNC_MODE_STANDALONE
         # will give 640x576 array
-        
+
         self.LowLevel[ResultChan_Name].start_capture(config)
 
         (width,height) = self.LowLevel[ResultChan_Name].get_running_pixel_shape()
@@ -815,18 +815,18 @@ class K4A(object,metaclass=dgpy_Module):
             
             cur_acq = self.LowLevel[ResultChan_Name].wait_frame(K4A_WAIT_INFINITE)
             transact = snde.active_transaction(self.recdb)
-            point_cloud_recording = snde.ndarray_recording.create_typed_recording(self.recdb,self.result_channel_ptrs[ResultChan_Name],self,snde.SNDE_RTN_COORD3_INT16)
+            point_cloud_recording = snde.multi_ndarray_recording.create_typed_recording(self.recdb,self.result_channel_ptrs[ResultChan_Name],self,snde.SNDE_RTN_COORD3_INT16)
             transact.end_transaction()
-            point_cloud_recording.metadata = snde.immutable_metadata()
-            point_cloud_recording.mark_metadata_done()
+            point_cloud_recording.rec.metadata = snde.immutable_metadata()
+            point_cloud_recording.rec.mark_metadata_done()
             point_cloud_recording.allocate_storage([height,width])
 
             cur_acq.get_point_cloud(self.LowLevel[ResultChan_Name],<void *>(<uintptr_t>point_cloud_recording.void_dataptr()), width, height)
             #cur_acq.get_depth_image(self.LowLevel[ResultChan_Name],<void *>(<uintptr_t>point_cloud_recording.void_dataptr()), width, height)
 
-            point_cloud_recording.mark_as_ready()
-            
+            point_cloud_recording.rec.mark_as_ready()
 
+            # !!! Need some way to tell this thread to quit when the user exits !!!***
             
             pass
         
