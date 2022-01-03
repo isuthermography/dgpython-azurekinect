@@ -5,6 +5,7 @@ import numbers
 import collections
 import time
 import traceback
+import ctypes
 from threading import Thread
 
 import spatialnde2 as snde
@@ -12,12 +13,16 @@ import spatialnde2 as snde
 from libcpp cimport bool as bool_t
 from libcpp.string cimport string
 from cython.operator cimport dereference as deref
+from cpython cimport Py_DECREF,PyObject
 
 from dataguzzler_python.dgpy import Module as dgpy_Module
 from dataguzzler_python.dgpy import CurContext
 from dataguzzler_python.dgpy import RunInContext
 from dataguzzler_python.dgpy import InitCompatibleThread
-
+# Very important to use dataguzzler_python condition variables
+# NOT native python condition variables as the dataguzzler_python
+# version avoids cross-module deadlocks. 
+from dataguzzler_python.lock import Condition  
 
 #import pint # units library
 
@@ -33,13 +38,14 @@ from libc.stdint cimport int8_t
 from libc.stdint cimport uint8_t
 from libc.stdint cimport uintptr_t
 from libc.errno cimport errno,EAGAIN,EINTR
-from libc.stdlib cimport calloc,free
+from libc.stdlib cimport malloc,calloc,free
 from libc.string cimport memcpy
 
 import numpy as np
 cimport numpy as np
+from numpy cimport NPY_SHORT,PyArray_New,import_array,npy_intp
 
-
+import_array()
 
 cdef extern from "k4a/k4a.h" nogil:
     ctypedef void *k4a_device_t
@@ -182,9 +188,31 @@ cdef extern from "k4a/k4a.h" nogil:
     extern k4a_device_configuration_t K4A_DEVICE_CONFIG_INIT_DISABLE_ALL
 
     ctypedef struct k4a_calibration_extrinsics_t:
+        float rotation[9]
+        float translation[3]
+        pass
+
+    cdef struct _param:
+        float cx
+        float cy
+        float fx
+        float fy
+        float k1
+        float k2
+        float k3
+        float k4
+        float k5
+        float k6
+        float codx
+        float cody
+        float p2
+        float p1
+        float metric_radius
         pass
     
-    ctypedef struct k4a_calibration_intrinsic_parameters_t:
+    ctypedef union k4a_calibration_intrinsic_parameters_t:
+        _param param
+        float v[15]
         pass
 
     ctypedef struct k4a_calibration_intrinsics_t:
@@ -430,6 +458,88 @@ cdef extern from "k4a/k4a.h" nogil:
                                                                k4a_image_t xyz_image)
 
 
+    pass
+
+# Note: Once Cython 3.x is widely available it should be possible
+# to replace this mapping via scoped enumerations and cpdef enum
+# https://cython.readthedocs.io/en/latest/src/userguide/wrapping_CPlusPlus.html#scoped-enumerations
+syms = {
+    "K4A_RESULT_SUCCEEDED": K4A_RESULT_SUCCEEDED,
+    "K4A_RESULT_FAILED": K4A_RESULT_FAILED,
+    "K4A_BUFFER_RESULT_SUCCEEDED": K4A_BUFFER_RESULT_SUCCEEDED,
+    "K4A_BUFFER_RESULT_FAILED": K4A_BUFFER_RESULT_FAILED,
+    "K4A_BUFFER_RESULT_TOO_SMALL": K4A_BUFFER_RESULT_TOO_SMALL,
+    "K4A_WAIT_RESULT_SUCCEEDED": K4A_WAIT_RESULT_SUCCEEDED,
+    "K4A_WAIT_RESULT_FAILED": K4A_WAIT_RESULT_FAILED,
+    "K4A_WAIT_RESULT_TIMEOUT": K4A_WAIT_RESULT_TIMEOUT,
+    "K4A_LOG_LEVEL_CRITICAL": K4A_LOG_LEVEL_CRITICAL,
+    "K4A_LOG_LEVEL_ERROR": K4A_LOG_LEVEL_ERROR,
+    "K4A_LOG_LEVEL_WARNING": K4A_LOG_LEVEL_WARNING,
+    "K4A_LOG_LEVEL_INFO": K4A_LOG_LEVEL_INFO,
+    "K4A_LOG_LEVEL_TRACE": K4A_LOG_LEVEL_TRACE,
+    "K4A_LOG_LEVEL_OFF": K4A_LOG_LEVEL_OFF,
+    "K4A_DEPTH_MODE_OFF": K4A_DEPTH_MODE_OFF,
+    "K4A_DEPTH_MODE_NFOV_2X2BINNED": K4A_DEPTH_MODE_NFOV_2X2BINNED,
+    "K4A_DEPTH_MODE_NFOV_UNBINNED": K4A_DEPTH_MODE_NFOV_UNBINNED,
+    "K4A_DEPTH_MODE_WFOV_2X2BINNED": K4A_DEPTH_MODE_WFOV_2X2BINNED,
+    "K4A_DEPTH_MODE_WFOV_UNBINNED": K4A_DEPTH_MODE_WFOV_UNBINNED,
+    "K4A_DEPTH_MODE_PASSIVE_IR": K4A_DEPTH_MODE_PASSIVE_IR,
+    "K4A_COLOR_RESOLUTION_OFF": K4A_COLOR_RESOLUTION_OFF,
+    "K4A_COLOR_RESOLUTION_720P": K4A_COLOR_RESOLUTION_720P,
+    "K4A_COLOR_RESOLUTION_1080P": K4A_COLOR_RESOLUTION_1080P,
+    "K4A_COLOR_RESOLUTION_1440P": K4A_COLOR_RESOLUTION_1440P,
+    "K4A_COLOR_RESOLUTION_1536P": K4A_COLOR_RESOLUTION_1536P,
+    "K4A_COLOR_RESOLUTION_2160P": K4A_COLOR_RESOLUTION_2160P,
+    "K4A_COLOR_RESOLUTION_3072P": K4A_COLOR_RESOLUTION_3072P,
+    "K4A_IMAGE_FORMAT_COLOR_MJPG": K4A_IMAGE_FORMAT_COLOR_MJPG,
+    "K4A_IMAGE_FORMAT_COLOR_NV12": K4A_IMAGE_FORMAT_COLOR_NV12,
+    "K4A_IMAGE_FORMAT_COLOR_YUY2": K4A_IMAGE_FORMAT_COLOR_YUY2,
+    "K4A_IMAGE_FORMAT_COLOR_BGRA32": K4A_IMAGE_FORMAT_COLOR_BGRA32,
+    "K4A_IMAGE_FORMAT_DEPTH16": K4A_IMAGE_FORMAT_DEPTH16,
+    "K4A_IMAGE_FORMAT_IR16": K4A_IMAGE_FORMAT_IR16,
+    "K4A_IMAGE_FORMAT_CUSTOM8": K4A_IMAGE_FORMAT_CUSTOM8,
+    "K4A_IMAGE_FORMAT_CUSTOM16": K4A_IMAGE_FORMAT_CUSTOM16,
+    "K4A_IMAGE_FORMAT_CUSTOM": K4A_IMAGE_FORMAT_CUSTOM,
+    "K4A_TRANSFORMATION_INTERPOLATION_TYPE_NEAREST": K4A_TRANSFORMATION_INTERPOLATION_TYPE_NEAREST,
+    "K4A_TRANSFORMATION_INTERPOLATION_TYPE_LINEAR": K4A_TRANSFORMATION_INTERPOLATION_TYPE_LINEAR,
+    "K4A_FRAMES_PER_SECOND_5": K4A_FRAMES_PER_SECOND_5,
+    "K4A_FRAMES_PER_SECOND_15": K4A_FRAMES_PER_SECOND_15,
+    "K4A_FRAMES_PER_SECOND_30": K4A_FRAMES_PER_SECOND_30,
+    "K4A_COLOR_CONTROL_EXPOSURE_TIME_ABSOLUTE": K4A_COLOR_CONTROL_EXPOSURE_TIME_ABSOLUTE,
+    "K4A_COLOR_CONTROL_AUTO_EXPOSURE_PRIORITY": K4A_COLOR_CONTROL_AUTO_EXPOSURE_PRIORITY,
+    "K4A_COLOR_CONTROL_BRIGHTNESS": K4A_COLOR_CONTROL_BRIGHTNESS,
+    "K4A_COLOR_CONTROL_CONTRAST": K4A_COLOR_CONTROL_CONTRAST,
+    "K4A_COLOR_CONTROL_SATURATION": K4A_COLOR_CONTROL_SATURATION,
+    "K4A_COLOR_CONTROL_SHARPNESS": K4A_COLOR_CONTROL_SHARPNESS,
+    "K4A_COLOR_CONTROL_WHITEBALANCE": K4A_COLOR_CONTROL_WHITEBALANCE,
+    "K4A_COLOR_CONTROL_BACKLIGHT_COMPENSATION": K4A_COLOR_CONTROL_BACKLIGHT_COMPENSATION,
+    "K4A_COLOR_CONTROL_GAIN": K4A_COLOR_CONTROL_GAIN,
+    "K4A_COLOR_CONTROL_POWERLINE_FREQUENCY": K4A_COLOR_CONTROL_POWERLINE_FREQUENCY,
+    "K4A_COLOR_CONTROL_MODE_AUTO": K4A_COLOR_CONTROL_MODE_AUTO,
+    "K4A_COLOR_CONTROL_MODE_MANUAL": K4A_COLOR_CONTROL_MODE_MANUAL,
+    "K4A_WIRED_SYNC_MODE_STANDALONE": K4A_WIRED_SYNC_MODE_STANDALONE,
+    "K4A_WIRED_SYNC_MODE_MASTER": K4A_WIRED_SYNC_MODE_MASTER,
+    "K4A_WIRED_SYNC_MODE_SUBORDINATE": K4A_WIRED_SYNC_MODE_SUBORDINATE,
+    "K4A_CALIBRATION_TYPE_UNKNOWN": K4A_CALIBRATION_TYPE_UNKNOWN,
+    "K4A_CALIBRATION_TYPE_DEPTH": K4A_CALIBRATION_TYPE_DEPTH,
+    "K4A_CALIBRATION_TYPE_COLOR": K4A_CALIBRATION_TYPE_COLOR,
+    "K4A_CALIBRATION_TYPE_GYRO": K4A_CALIBRATION_TYPE_GYRO,
+    "K4A_CALIBRATION_TYPE_ACCEL": K4A_CALIBRATION_TYPE_ACCEL,
+    "K4A_CALIBRATION_TYPE_NUM": K4A_CALIBRATION_TYPE_NUM,
+    "K4A_CALIBRATION_LENS_DISTORTION_MODEL_UNKNOWN": K4A_CALIBRATION_LENS_DISTORTION_MODEL_UNKNOWN,
+    "K4A_CALIBRATION_LENS_DISTORTION_MODEL_THETA": K4A_CALIBRATION_LENS_DISTORTION_MODEL_THETA,
+    "K4A_CALIBRATION_LENS_DISTORTION_MODEL_POLYNOMIAL_3K": K4A_CALIBRATION_LENS_DISTORTION_MODEL_POLYNOMIAL_3K,
+    "K4A_CALIBRATION_LENS_DISTORTION_MODEL_RATIONAL_6KT": K4A_CALIBRATION_LENS_DISTORTION_MODEL_RATIONAL_6KT,
+    "K4A_CALIBRATION_LENS_DISTORTION_MODEL_BROWN_CONRADY": K4A_CALIBRATION_LENS_DISTORTION_MODEL_BROWN_CONRADY,
+    "K4A_FIRMWARE_BUILD_RELEASE": K4A_FIRMWARE_BUILD_RELEASE,
+    "K4A_FIRMWARE_BUILD_DEBUG": K4A_FIRMWARE_BUILD_DEBUG,
+    "K4A_FIRMWARE_SIGNATURE_MSFT": K4A_FIRMWARE_SIGNATURE_MSFT,
+    "K4A_FIRMWARE_SIGNATURE_TEST": K4A_FIRMWARE_SIGNATURE_TEST,
+    "K4A_FIRMWARE_SIGNATURE_UNSIGNED": K4A_FIRMWARE_SIGNATURE_UNSIGNED,
+    "K4A_DEVICE_DEFAULT": K4A_DEVICE_DEFAULT, # 0
+    "K4A_WAIT_INFINITE": K4A_WAIT_INFINITE, # -1        
+}
+
     
 
 def get_device_serial_numbers():
@@ -491,74 +601,21 @@ cdef class K4AAcquisition:
         #print("type(o)=%s o=%s" % (str(type(o)),str(o)))
         return o
     
-    cdef get_point_cloud(self,K4ALowLevel lowlevel,void *buffer, int width, int height):
-        """buffer should be of the image width and image
-           height, with space for 3 int16's per pixel"""
-        cdef k4a_depth_mode_t depth_mode = lowlevel.running_config.depth_mode
-        cdef k4a_image_t depth_image=NULL
-        cdef k4a_image_t point_cloud_image=NULL
-        cdef k4a_result_t errcode
-        cdef size_t stride
-        
-        assert(depth_mode == K4A_DEPTH_MODE_NFOV_2X2BINNED or 
-               depth_mode == K4A_DEPTH_MODE_NFOV_UNBINNED or 
-               depth_mode == K4A_DEPTH_MODE_WFOV_2X2BINNED or 
-               depth_mode == K4A_DEPTH_MODE_WFOV_UNBINNED)
-        
-        with nogil:
-            
-            
-            depth_image = k4a_capture_get_depth_image(self.capt);
-            if depth_image is NULL:
-                with gil:
-                    raise IOError("k4a_device_get_depth_image failed on serial number %s" % (self.serial_number))
-                pass
-
-            if not(k4a_image_get_width_pixels(depth_image)==width and k4a_image_get_height_pixels(depth_image)==height):
-                with gil:
-                    raise ValueError("Image dimensions (%d,%d) do not match expected value (%d,%d)" % (k4a_image_get_width_pixels(depth_image),k4a_image_get_height_pixels(depth_image),width,height))
-                pass
-            
-            stride = width*3*sizeof(int16_t)
-
-            errcode = k4a_image_create_from_buffer(K4A_IMAGE_FORMAT_CUSTOM,
-                                                   width,
-                                                   height,
-                                                   stride,
-                                                   <uint8_t *>buffer,
-                                                   stride*height,
-                                                   NULL,
-                                                   NULL,
-                                                   &point_cloud_image)
-            if errcode != K4A_RESULT_SUCCEEDED:
-                with gil:
-                    raise RuntimeError("Error creating point cloud image from buffer")
-                pass
-            
-            
-            errcode = k4a_transformation_depth_image_to_point_cloud(lowlevel.transformation,depth_image,K4A_CALIBRATION_TYPE_DEPTH,point_cloud_image)
-            if errcode != K4A_RESULT_SUCCEEDED:
-                with gil:
-                    raise RuntimeError("Error transforming depth image into point cloud")
-                pass
-
-            k4a_image_release(point_cloud_image)
-            k4a_image_release(depth_image)
-            pass
-
-        pass
 
 
-    cdef get_depth_image(self,K4ALowLevel lowlevel,void *buffer, int width, int height):
+    cdef get_depth_data(self,K4ALowLevel lowlevel,object buffer, int width, int height,int point_cloud_flag,int float_flag):
         """buffer should be of the image width and image
            height, with space for 1 int16's per pixel"""
-        cdef k4a_depth_mode_t depth_mode = lowlevel.running_config.depth_mode
+        cdef k4a_depth_mode_t depth_mode = lowlevel.config.depth_mode
         cdef k4a_image_t depth_image=NULL
         cdef k4a_image_t point_cloud_image=NULL
         cdef k4a_result_t errcode
-        cdef size_t stride
         cdef void *imgbuf;
         cdef uint64_t *longbuf;
+        cdef npy_intp strides[3]
+        cdef npy_intp dims[3]
+        cdef object k4a_array  # numpy array
+        cdef size_t nbytes
         
         assert(depth_mode == K4A_DEPTH_MODE_NFOV_2X2BINNED or 
                depth_mode == K4A_DEPTH_MODE_NFOV_UNBINNED or 
@@ -579,25 +636,151 @@ cdef class K4AAcquisition:
                     raise ValueError("Image dimensions (%d,%d) do not match expected value (%d,%d)" % (k4a_image_get_width_pixels(depth_image),k4a_image_get_height_pixels(depth_image),width,height))
                 pass
 
-            imgbuf = <void*>k4a_image_get_buffer(depth_image);
-            longbuf=<uint64_t *>imgbuf;
+            #imgbuf = <void*>k4a_image_get_buffer(depth_image);
+            #longbuf=<uint64_t *>imgbuf;
+
+            #ctypes.cast(<uintptr_t>imgbuf,ctypes.POINTER(ctypes.c_char))
+            dims[0]=width
+            dims[1]=height
+            strides[0]=2
+            strides[1]=k4a_image_get_stride_bytes(depth_image)
             
-            with gil:
-                assert(k4a_image_get_stride_bytes(depth_image)==width*sizeof(int16_t));
-                #assert(longbuf[0] != 0)
+            if not point_cloud_flag:
+                # Image based
+                with gil:
+                    # Wrap k4a data with a numpy array, then transfer into our buffer
+                    k4a_array = PyArray_New(np.ndarray,2,dims,NPY_SHORT,strides,<void *>k4a_image_get_buffer(depth_image),2,0,None)
+                    if float_flag:
+                        # When we generate output in floating point we generate it in spatialnde2 (OpenGL)
+                        # coordinates vs. the native integer output from the Azure Kinect is in
+                        # OpenCV coordinates.
+                        
+                        # Negate z coordinates in the depth image; we will also invert the y
+                        # axis interpretation via metadata. 
+                        buffer[:,:] = -k4a_array
+                        pass
+                    else:
+                        buffer[:,:] = k4a_array
+                        pass
+                    #sys.stderr.write("refcount=%d\n" % ((<PyObject *>k4a_array).ob_refcnt))
+                    ##Py_DECREF(k4a_array) # prevent memory leak (not necessary as it turns out)
+                    del k4a_array
+                    pass
+                pass
+            else:
+                # point_cloud
+
+                if float_flag:
+                    # Create a temporary integer buffer
+                    #strides[0]=3*sizeof(int16)
+                    strides[1] = width*3*sizeof(int16_t)
+                    nbytes = strides[1]*height
+                    imgbuf = malloc(nbytes)
+                    errcode = k4a_image_create_from_buffer(K4A_IMAGE_FORMAT_CUSTOM,
+                                                           width,
+                                                           height,
+                                                           strides[1],
+                                                           <uint8_t *>imgbuf,
+                                                           nbytes,
+                                                           NULL,
+                                                           NULL,
+                                                           &point_cloud_image)
+                    if errcode != K4A_RESULT_SUCCEEDED:
+                        with gil:
+                            raise RuntimeError("Error creating temporary point cloud image buffer")
+                        pass
+                    
+                    
+                    errcode = k4a_transformation_depth_image_to_point_cloud(lowlevel.transformation,depth_image,K4A_CALIBRATION_TYPE_DEPTH,point_cloud_image)
+                    if errcode != K4A_RESULT_SUCCEEDED:
+                        with gil:
+                            raise RuntimeError("Error transforming depth image into point cloud")
+                        pass
+
+                    
+                    # Wrap k4a data with a numpy array, then transfer into our buffer
+                    dims[0]=3
+                    dims[1]=width
+                    dims[2]=height
+                    strides[0]=2
+                    strides[1]=3*sizeof(int16_t)
+                    strides[2]=k4a_image_get_stride_bytes(point_cloud_image)
+                    with gil:
+                        k4a_array = PyArray_New(np.ndarray,3,dims,NPY_SHORT,strides,<void *>k4a_image_get_buffer(point_cloud_image),2,0,None)
+                        #if strides[2] != width*3*sizeof(int16_t):
+                        #    raise ValueError("A")
+                        #if k4a_array.nbytes != nbytes:
+                        #    raise ValueError("B")
+                        
+
+
+                        # When we generate output in floating point we generate it in spatialnde2 (OpenGL)
+                        # coordinates vs. the native integer output from the Azure Kinect is in
+                        # OpenCV coordinates.
+
+                        # Transfer x coordinates unchanged into the point cloud.
+                        buffer[0,:,:] = k4a_array[0,:,:]
+                        # Negate y and z coordinates in the point cloud.                        
+                        buffer[1:3,:,:] = -k4a_array[1:3,:,:]
+                        
+                        #Py_DECREF(k4a_array) # prevent memory leak (not necessary as it turns out)
+                        del k4a_array
+                        pass
+
+                    k4a_image_release(point_cloud_image)
+                    free(imgbuf)
+                    
+                    pass
+                else:
+                    # Integer mode: Convert directly into given buffer
+                    with gil:
+                        strides[1]=buffer.strides[1]
+                        imgbuf = <void *>buffer.data
+                        nbytes = buffer.nbytes
+                        pass
+                    
+                    # Integer mode: Convert directly into the numpy array
+                    errcode = k4a_image_create_from_buffer(K4A_IMAGE_FORMAT_CUSTOM,
+                                                           width,
+                                                           height,
+                                                           strides[1],
+                                                           <uint8_t *>imgbuf,
+                                                           nbytes,
+                                                           NULL,
+                                                           NULL,
+                                                           &point_cloud_image)
+                    if errcode != K4A_RESULT_SUCCEEDED:
+                        with gil:
+                            raise RuntimeError("Error creating point cloud image from buffer")
+                        pass
+                    
+                    errcode = k4a_transformation_depth_image_to_point_cloud(lowlevel.transformation,depth_image,K4A_CALIBRATION_TYPE_DEPTH,point_cloud_image)
+                    if errcode != K4A_RESULT_SUCCEEDED:
+                        with gil:
+                            raise RuntimeError("Error transforming depth image into point cloud")
+                        pass
+                    
+                    k4a_image_release(point_cloud_image)
+                    pass
                 
                 pass
-            
-            memcpy(buffer,imgbuf,width*height*sizeof(int16_t));
             k4a_image_release(depth_image)
             pass
 
         pass
 
 
+    def release_buffers(self):
+        if self.capt:
+            k4a_capture_release(self.capt)
+            self.capt=NULL
+            pass
+        pass
     
     def __del__(self):
-        k4a_capture_release(self.capt)
+        if self.capt:
+            k4a_capture_release(self.capt)
+            pass
         self.capt=NULL
         pass
     
@@ -608,7 +791,10 @@ cdef class K4ALowLevel:
     cdef k4a_calibration_t calibration  # Only valid when capture_running
     cdef k4a_transformation_t transformation
     cdef bool_t capture_running
-    cdef k4a_device_configuration_t running_config
+
+    cdef k4a_calibration_type_t point_cloud_frame # K4A_CALIBRATION_TYPE_DEPTH or K4A_CALIBRATION_TYPE_COLOR
+    
+    cdef k4a_device_configuration_t config
 
     def __cinit__(self,serial_number_str_or_none):
         #""" channel_ptr should be a swig-rwapped shared_ptr to snde::channel"""
@@ -626,7 +812,6 @@ cdef class K4ALowLevel:
         #self.calibration=NULL
         self.transformation=NULL
         self.capture_running=False
-        self.running_config = K4A_DEVICE_CONFIG_INIT_DISABLE_ALL
         
         num_devices = k4a_device_get_installed_count()
         
@@ -689,8 +874,8 @@ cdef class K4ALowLevel:
             pass
         pass
     
-    def get_running_pixel_shape(self):
-        cdef k4a_depth_mode_t depth_mode = self.running_config.depth_mode
+    def get_running_depth_pixel_shape(self):
+        cdef k4a_depth_mode_t depth_mode = self.config.depth_mode
         assert(self.capture_running)
         
         if depth_mode == K4A_DEPTH_MODE_NFOV_2X2BINNED :
@@ -701,15 +886,17 @@ cdef class K4ALowLevel:
             return (512,512)
         elif depth_mode == K4A_DEPTH_MODE_WFOV_UNBINNED:
             return (1024,1024)
+        elif depth_mode == K4A_DEPTH_MODE_PASSIVE_IR:
+            return (1024,1024)
         pass
     
         
-    def start_capture(self,k4a_device_configuration_t config):
+    def start_capture(self):
         cdef k4a_result_t errcode
 
         assert(not self.capture_running)
         
-        errcode = k4a_device_get_calibration(self.dev,config.depth_mode,config.color_resolution,&self.calibration)
+        errcode = k4a_device_get_calibration(self.dev,self.config.depth_mode,self.config.color_resolution,&self.calibration)
         if errcode != K4A_RESULT_SUCCEEDED:
             raise IOError("Error obtaining Azure Kinect device calibration (device serial %s)" % (self.serial_number))
 
@@ -721,12 +908,11 @@ cdef class K4ALowLevel:
         
         self.transformation = k4a_transformation_create(&self.calibration)
         
-        errcode = k4a_device_start_cameras(self.dev,&config)
+        errcode = k4a_device_start_cameras(self.dev,&self.config)
 
         if errcode != K4A_RESULT_SUCCEEDED:
-            raise IOError("Error starting Azure Kinect device capture (device serial %s)" % (self.serial_number))
+            raise IOError("Error starting Azure Kinect device capture (device serial %s): errcode = %d. Check if you have selected a supported configuration or try enabling debug messages with the K4A_ENABLE_LOG_TO_STDOUT=1 environment variable." % (self.serial_number,errcode))
 
-        self.running_config = config
         self.capture_running = True
         pass
 
@@ -747,86 +933,548 @@ cdef class K4ALowLevel:
         if waitresult == K4A_WAIT_RESULT_TIMEOUT:
             return None
         elif waitresult == K4A_WAIT_RESULT_FAILED:
+            k4a_device_stop_cameras(self.dev)  # per SDK instructions, issue stop instruction after error return from k4a_device_get_capture
+            self.capture_running=False
             raise IOError("k4a_device_get_capture failed on serial number %s" % (self.serial_number))
         
         assert(waitresult==K4A_WAIT_RESULT_SUCCEEDED)
 
         return K4AAcquisition.create(self.serial_number,capt,monotonic_timestamp,os_timestamp)
+    
+    def halt_from_other_thread(self):
+        # Per the documentation, this will make k4a_device_get_capture exit with an error message
+        k4a_device_stop_cameras(self.dev)
+
+        pass
+    
     pass
 
 class K4A(object,metaclass=dgpy_Module):
     # dgpy_Module ensures that all calls to this are within the same thread
     module_name=None # our module name
     recdb = None # Swig-wrapped recording database
-    LowLevel=None # Ordered Dictionary by name (or None) of kinect_lowlevel.K4ALowLevel objects ... After initialization all access are from the capture thread. (at least so far)
-    result_channel_ptrs = None # Ordered Dictionary by name of swig-wrapped shared pointer to snde::channel
-    capture_thread = None
-    
-    def __init__(self,module_name,recdb,device_serialnumber_ordereddict):
-        """
-        device_serialnumber_ordereddict will eventually be an ordered dictionary indexed by
-        result channel name of device serial numbers. With only one device present it is OK
-        to pass { "ResultChannel": None } (and nothing beyond that it yet supported). The First device
-        is presumed to be the synchronization master. """
+    LowLevel=None # kinect_lowlevel.K4ALowLevel object ... After initialization all access are from the capture thread. (at least so far)
+    result_depth_channel_name = None 
+    result_color_channel_name = None 
+    result_depth_channel_ptr = None # swig-wrapped shared pointer to snde::channel
+    result_color_channel_ptr = None # swig-wrapped shared pointer to snde::channel
+    _capture_thread = None
 
+    _capture_running_cond = None # dataguzzler-python Condition variable for waiting on capture_running
+    _capture_running = None  # Boolean, written only by sub-thread with capture_running_cond locked
+    _capture_start = None  # Boolean, set only by main thread and cleared only by sub-thread with capture_running_cond locked
+    _capture_stop = None  # Boolean, set only by main thread and cleared only by sub-thread with capture_running_cond locked
+    _capture_failed = None # Boolean, set only by sub thread and cleared only by main thread to indicate a failure condition
+
+    _desired_run_state = None
+
+    _depth_data_mode = None
+    _depth_data_type = None
+    _calcsync = None
+    
+    @property
+    def running(self):
+        with self._capture_running_cond:
+            return self._capture_running
+        pass
+
+    @running.setter
+    def running(self,value):
+        self._desired_run_state = value
+        with self._capture_running_cond:
+            if self._capture_running and not self._desired_run_state:
+                self._stop_capture_cond_locked()
+                pass
+            elif not self._capture_running and self._desired_run_state:
+                self._start_capture_cond_locked()
+                pass
+            pass
+        pass
+
+
+    @property
+    def color_format(self):
+        cdef K4ALowLevel LowLevel = self.LowLevel
+        return LowLevel.config.color_format
+    @color_format.setter
+    def color_format(self,value):
+        cdef K4ALowLevel LowLevel = self.LowLevel
+        value=int(value)
+        with self._capture_running_cond:
+            self._stop_temporarily()
+            LowLevel.config.color_format = value
+            self._restart_if_appropriate()
+            pass
+        
+        pass
+
+
+    @property
+    def color_resolution(self):
+        cdef K4ALowLevel LowLevel = self.LowLevel
+        return LowLevel.config.color_resolution
+    @color_resolution.setter
+    def color_resolution(self,value):
+        cdef K4ALowLevel LowLevel = self.LowLevel
+        value=int(value)
+        with self._capture_running_cond:
+            self._stop_temporarily()
+            LowLevel.config.color_resolution = value
+            self._restart_if_appropriate()
+            pass        
+        pass
+
+
+    @property
+    def depth_mode(self):
+        cdef K4ALowLevel LowLevel = self.LowLevel
+        return LowLevel.config.depth_mode
+    @depth_mode.setter
+    def depth_mode(self,value):
+        cdef K4ALowLevel LowLevel = self.LowLevel
+        value=int(value)
+        with self._capture_running_cond:
+            self._stop_temporarily()
+            LowLevel.config.depth_mode = value
+            self._restart_if_appropriate()
+            pass        
+        pass
+
+
+
+    @property
+    def camera_fps(self):
+        cdef K4ALowLevel LowLevel = self.LowLevel
+        return LowLevel.config.camera_fps
+    @camera_fps.setter
+    def camera_fps(self,value):
+        cdef K4ALowLevel LowLevel = self.LowLevel
+        value=int(value)
+        with self._capture_running_cond:
+            self._stop_temporarily()
+            LowLevel.config.camera_fps = value
+            self._restart_if_appropriate()
+            pass        
+        pass
+
+    @property
+    def synchronized_images_only(self):
+        cdef K4ALowLevel LowLevel = self.LowLevel
+        return LowLevel.config.synchronized_images_only
+    @synchronized_images_only.setter
+    def synchronized_images_only(self,value):
+        cdef K4ALowLevel LowLevel = self.LowLevel
+        value = bool(value)
+        with self._capture_running_cond:
+            self._stop_temporarily()
+            LowLevel.config.synchronized_images_only = value
+            self._restart_if_appropriate()
+            pass        
+        pass
+    
+    @property
+    def depth_delay_off_color_usec(self):
+        cdef K4ALowLevel LowLevel = self.LowLevel
+        return LowLevel.config.depth_delay_off_color_usec
+    @depth_delay_off_color_usec.setter
+    def depth_delay_off_color_usec(self,value):
+        cdef K4ALowLevel LowLevel = self.LowLevel
+        value=int(value)
+        with self._capture_running_cond:
+            self._stop_temporarily()
+            LowLevel.config.depth_delay_off_color_usec = value
+            self._restart_if_appropriate()
+            pass        
+        pass
+
+    
+    @property
+    def wired_sync_mode(self):
+        cdef K4ALowLevel LowLevel = self.LowLevel
+        return LowLevel.config.wired_sync_mode
+    @wired_sync_mode.setter
+    def wired_sync_mode(self,value):
+        cdef K4ALowLevel LowLevel = self.LowLevel
+        value=int(value)
+        with self._capture_running_cond:
+            self._stop_temporarily()
+            LowLevel.config.wired_sync_mode = value
+            self._restart_if_appropriate()
+            pass        
+        pass
+    
+    @property
+    def subordinate_delay_off_master_usec(self):
+        cdef K4ALowLevel LowLevel = self.LowLevel
+        return LowLevel.config.subordinate_delay_off_master_usec
+    @subordinate_delay_off_master_usec.setter
+    def subordinate_delay_off_master_usec(self,value):
+        cdef K4ALowLevel LowLevel = self.LowLevel
+        value=int(value)
+        with self._capture_running_cond:
+            self._stop_temporarily()
+            LowLevel.config.subordinate_delay_off_master_usec = value
+            self._restart_if_appropriate()
+            pass        
+        pass
+
+    @property
+    def disable_streaming_indicator(self):
+        cdef K4ALowLevel LowLevel = self.LowLevel
+        return LowLevel.config.disable_streaming_indicator
+    @disable_streaming_indicator.setter
+    def disable_streaming_indicator(self,value):
+        cdef K4ALowLevel LowLevel = self.LowLevel
+        value = bool(value)
+        with self._capture_running_cond:
+            self._stop_temporarily()
+            LowLevel.config.disable_streaming_indicator = value
+            self._restart_if_appropriate()
+            pass        
+        pass
+
+    @property
+    def point_cloud_frame(self):
+        cdef K4ALowLevel LowLevel = self.LowLevel
+        return LowLevel.point_cloud_frame
+    @point_cloud_frame.setter
+    def point_cloud_frame(self,value):
+        cdef K4ALowLevel LowLevel = self.LowLevel
+        value=int(value)
+        if value != K4A_CALIBRATION_TYPE_DEPTH and value != K4A_CALIBRATION_TYPE_COLOR:
+            raise ValueError("Invalid point_cloud_frame: Must be K4A_CALIBRATION_TYPE_DEPTH or K4A_CALIBRATION_TYPE_COLOR")        
+        with self._capture_running_cond:
+            self._stop_temporarily()
+            LowLevel.point_cloud_frame = value
+            self._restart_if_appropriate()
+            pass        
+        pass
+
+
+    
+    @property
+    def depth_data_mode(self):
+        return self._depth_data_mode
+    @depth_data_mode.setter
+    def depth_data_mode(self,value):
+        if value == "IMAGE" or value == "POINTCLOUD":
+            with self._capture_running_cond:
+                self._stop_temporarily()
+                self._depth_data_mode = value;
+                self._restart_if_appropriate()
+                pass
+            pass
+        else:
+            raise ValueError("Valid depth data modes are \"IMAGE\" and \"POINTCLOUD\".")
+        pass
+    
+    @property
+    def depth_data_type(self):
+        return self._depth_data_type
+    @depth_data_type.setter
+    def depth_data_type(self,value):
+        if value == "INT" or value == "FLOAT":
+            with self._capture_running_cond:
+                self._stop_temporarily()
+                self._depth_data_type = value;
+                self._restart_if_appropriate()
+                pass
+            pass
+        else:
+            raise ValueError("Valid depth data types are \"INT\" and \"FLOAT\".")
+        pass
+    
+
+
+    @property
+    def calcsync(self):
+        return self._calcsync
+    @calcsync.setter
+    def calcsync(self,value):
+        value = bool(value)
+        with self._capture_running_cond:
+            self._stop_temporarily()
+            self._calcsync = value;
+            self._restart_if_appropriate()
+            pass
+        pass
+    
+
+
+    def _stop_capture_cond_locked(self):
+        # call with self._capture_running_cond locked
+        self._capture_stop=True
+        self.LowLevel.halt_from_other_thread()
+        self._capture_running_cond.wait_for(lambda: not self._capture_running)
+        pass
+
+    def _start_capture_cond_locked(self):
+        # call with self._capture_running_cond locked
+        self._capture_start=True
+        self._capture_running_cond.notify_all()
+        self._capture_running_cond.wait_for(lambda: (self._capture_running or self._capture_failed))
+        self._capture_failed = False # Accept message 
+        pass
+
+    
+    def _stop_temporarily(self):
+        # call with self._capture_running_cond locked
+        if self._capture_running:
+            self._stop_capture_cond_locked()
+            pass
+        pass
+
+    def _restart_if_appropriate(self):
+        # call with self._capture_running_cond locked
+        if not self._capture_running and self._desired_run_state:
+            self._start_capture_cond_locked()
+            pass
+        pass
+    
+    
+    def __init__(self,module_name,recdb,device_serialnumber,result_depth_channel_name,result_color_channel_name=None):
+        """
+        device_serialnumber can be a string or None if only one camera is attached. """
+
+        cdef K4ALowLevel LowLevel
+        
         self.module_name = module_name
         self.recdb = recdb
-        self.LowLevel = collections.OrderedDict()
-        self.result_channel_ptrs={}
-        
-        ResultChan_Name = list(device_serialnumber_ordereddict.keys())[0]
+        self.LowLevel = K4ALowLevel(device_serialnumber)
+        self.result_depth_channel_name=result_depth_channel_name
+        self.result_color_channel_name=result_color_channel_name
 
+        self._capture_running_cond = Condition()
+        #self.capture_running = None
+        self._capture_running = False
+        self._capture_start = False
+        self._capture_stop = False
+        self._capture_failed = False
+        self._desired_run_state = False
+
+        # Default configuration
+        LowLevel = self.LowLevel
+        LowLevel.config = K4A_DEVICE_CONFIG_INIT_DISABLE_ALL
+        if result_color_channel_name is not None:
+            LowLevel.config.color_format = K4A_IMAGE_FORMAT_COLOR_BGRA32
+            LowLevel.config.color_resolution = K4A_COLOR_RESOLUTION_720P
+            pass
+
+        if result_depth_channel_name is not None:
+            LowLevel.config.depth_mode = K4A_DEPTH_MODE_NFOV_UNBINNED         # will give 640x576 array
+            pass
+        
+
+        LowLevel.config.camera_fps = K4A_FRAMES_PER_SECOND_30
+
+        if result_color_channel_name is not None and result_depth_channel_name is not None:
+            LowLevel.config.synchronized_images_only = True
+            pass
+        
+        LowLevel.config.wired_sync_mode = K4A_WIRED_SYNC_MODE_STANDALONE
+        LowLevel.config.subordinate_delay_off_master_usec = 0  # use 160 for a secondary camera
+        LowLevel.config.disable_streaming_indicator = False
+        LowLevel.point_cloud_frame = K4A_CALIBRATION_TYPE_DEPTH
+        
+        self._depth_data_mode = "POINTCLOUD"
+        self._depth_data_type = "FLOAT"
+        self._calcsync = True
+        
+        
         # Transaction required to add a channel
         transact = snde.active_transaction(recdb)
-        self.result_channel_ptrs[ResultChan_Name] = recdb.reserve_channel(snde.channelconfig(ResultChan_Name,module_name,self,False))
+
+        if result_depth_channel_name is not None:
+            self.result_depth_channel_ptr = recdb.reserve_channel(snde.channelconfig(result_depth_channel_name,module_name,self,False))
+            pass
+
+        if result_color_channel_name is not None: 
+            self.result_color_channel_ptr = recdb.reserve_channel(snde.channelconfig(result_color_channel_name,module_name,self,False))
+            pass
+        
         transact.end_transaction()
         
-        self.LowLevel[ResultChan_Name] = K4ALowLevel(device_serialnumber_ordereddict[ResultChan_Name])
-
         self.capture_thread = Thread(target=self.capture_thread_code)
-        self.capture_thread.start() # Won't actually be able to record a transaction until this one ends.        
+        self.capture_thread.start() # Won't actually be able to record a transaction until this one ends.
+        
+        ## Wait for thread to initialize (probably not necessary)
+        #with self._capture_running_cond:
+        #    self._capture_running_cond.wait_for(lambda: self._capture_running is not None)
+        #    pass
+        
         pass
     
 
     def capture_thread_code(self):
         cdef k4a_device_configuration_t config = K4A_DEVICE_CONFIG_INIT_DISABLE_ALL
-        cdef K4AAcquisition cur_acq
-        cdef size_t width
-        cdef size_t height
+        cdef K4AAcquisition cur_acq=K4AAcquisition()
+        cdef size_t depth_width
+        cdef size_t depth_height
+        cdef k4a_calibration_t calibration
+        cdef K4ALowLevel LowLevel
         
-        InitCompatibleThread(self,"_capture_thread")
-
+        InitCompatibleThread(self,"_k4a_capture_thread")
+        LowLevel = self.LowLevel
         
-        ResultChan_Name = list(self.LowLevel.keys())[0]
         
-        config.camera_fps = K4A_FRAMES_PER_SECOND_30
-        config.color_format = K4A_IMAGE_FORMAT_COLOR_BGRA32
-        config.color_resolution = K4A_COLOR_RESOLUTION_720P
-        config.synchronized_images_only = True
-        config.depth_mode = K4A_DEPTH_MODE_NFOV_UNBINNED
-        config.wired_sync_mode = K4A_WIRED_SYNC_MODE_STANDALONE
-        # will give 640x576 array
 
-        self.LowLevel[ResultChan_Name].start_capture(config)
-
-        (width,height) = self.LowLevel[ResultChan_Name].get_running_pixel_shape()
-
+        ## Notify parent by flipping _capture_running to False from None
+        #with self._capture_running_cond:
+        #    self._capture_running = False
+        #    self._capture_running_cond.notify_all()
+        #    pass
+        
         while True:
-            
-            cur_acq = self.LowLevel[ResultChan_Name].wait_frame(K4A_WAIT_INFINITE)
-            transact = snde.active_transaction(self.recdb)
-            point_cloud_recording_ref = snde.create_recording_ref(self.recdb,self.result_channel_ptrs[ResultChan_Name],self,snde.SNDE_RTN_SNDE_COORD3_INT16)
-            transact.end_transaction()
-            point_cloud_recording_ref.rec.metadata = snde.immutable_metadata()
-            point_cloud_recording_ref.rec.mark_metadata_done()
-            point_cloud_recording_ref.allocate_storage([height,width])
 
-            cur_acq.get_point_cloud(self.LowLevel[ResultChan_Name],<void *>(<uintptr_t>point_cloud_recording_ref.void_shifted_arrayptr()), width, height)
-            #cur_acq.get_depth_image(self.LowLevel[ResultChan_Name],<void *>(<uintptr_t>point_cloud_recording_ref.void_shifted_arrayptr()), width, height)
+            with self._capture_running_cond:
+                self._capture_running_cond.wait_for(lambda: self._capture_start)
 
-            point_cloud_recording_ref.rec.mark_as_ready()
+                try:
+                    LowLevel.start_capture()
+                    self._capture_running = True
+                    self._capture_start = False
+                    self._capture_running_cond.notify_all()
+                    pass
+                except IOError as e:
+                    snde.snde_warning(str(e))
+                    self._capture_running=False
+                    self._capture_start = False
+                    self._capture_failed = True
+                    self._capture_running_cond.notify_all()
+                    pass
+                
+                
+                pass
 
-            # !!! Need some way to tell this thread to quit when the user exits !!!***
+            while self._capture_running:  # Other threads not allowed to change this variable so we are safe to read it
+                
+                try:
+                    cur_acq = LowLevel.wait_frame(K4A_WAIT_INFINITE)
+                    pass
+                
+                except IOError as e:
+                    # Notify parent of failure and/or that we have stopped at their request
+                    intentional_stop = False
+                    with self._capture_running_cond:
+                        self._capture_running=False
+                        if self._capture_stop:
+                            intentional_stop = True
+                            self._capture_stop = False
+                            pass
+                        self._capture_running_cond.notify_all()
+                        pass
+                    if not intentional_stop:
+                        snde.snde_warning(str(e)) # print out warning message
+                        pass
+                    
+                    pass
+
+                if self._capture_running: # Successful acquisition
+                    (depth_width,depth_height) = LowLevel.get_running_depth_pixel_shape()
+                    
+                    transact = snde.active_transaction(self.recdb)
+
+                    depth_recording_ref = None
+                    color_recording_ref = None
+                    
+                    if self.result_depth_channel_ptr is not None:
+                        if self._depth_data_mode == "IMAGE":
+                            if self._depth_data_type == "INT":
+                                depth_recording_ref = snde.create_recording_ref(self.recdb,self.result_depth_channel_ptr,self,snde.SNDE_RTN_INT16)
+                                pass
+                            else: # FLOAT
+                                depth_recording_ref = snde.create_recording_ref(self.recdb,self.result_depth_channel_ptr,self,snde.SNDE_RTN_FLOAT32)
+                                pass
+
+                            pass
+                        else: #  self._depth_data_mode == "POINTCLOUD":
+                            if self._depth_data_type == "INT":
+                                depth_recording_ref = snde.create_recording_ref(self.recdb,self.result_depth_channel_ptr,self,snde.SNDE_RTN_SNDE_COORD3_INT16)
+                                pass
+                            else: # FLOAT
+                                depth_recording_ref = snde.create_recording_ref(self.recdb,self.result_depth_channel_ptr,self,snde.SNDE_RTN_SNDE_COORD3)
+                                pass
+                            pass
+                        pass
+                    
+                    if self.result_color_channel_ptr is not None:
+                        # Assign color_recording ref...
+                        pass
+                    globalrev = transact.end_transaction()
+
+                    if self.result_depth_channel_ptr is not None:
+                        calibration = LowLevel.calibration
+                        # Starting from OpenCV calibration documentation
+                        # u = u'/w' = (fx*Xc + cx*Zc)/Zc
+                        # u = (fx*Xc/Zc + cx)
+                        # u/fx = Xc/Zc + cx/fx
+                        # Therefore steps are 1.0/fx, 1.0/fy
+                        # Units are tangent_ray_angle
+                        # Initial value is -cx/fx
+                        
+                                               
+                        metadata = snde.constructible_metadata()
+                        metadata.AddMetaDatum(snde.metadatum("nde_array-axis0_step",1.0/LowLevel.calibration.depth_camera_calibration.intrinsics.parameters.param.fx))
+                        metadata.AddMetaDatum(snde.metadatum("nde_array-axis1_step",-1.0/LowLevel.calibration.depth_camera_calibration.intrinsics.parameters.param.fy)) # negative step because our coordinate frames start at lower left corner but camera data starts at upper left
+                        #sys.stderr.write("Azure Kinect: dy=%f\n" %(1.0/LowLevel.calibration.depth_camera_calibration.intrinsics.parameters.param.fy))
+                        metadata.AddMetaDatum(snde.metadatum("nde_array-axis0_inival",-LowLevel.calibration.depth_camera_calibration.intrinsics.parameters.param.cx/LowLevel.calibration.depth_camera_calibration.intrinsics.parameters.param.fx))
+                        metadata.AddMetaDatum(snde.metadatum("nde_array-axis1_inival",(depth_height-LowLevel.calibration.depth_camera_calibration.intrinsics.parameters.param.cy-1)/LowLevel.calibration.depth_camera_calibration.intrinsics.parameters.param.fy))
+                        metadata.AddMetaDatum(snde.metadatum("nde_array-axis0_coord","X Position"))
+                        metadata.AddMetaDatum(snde.metadatum("nde_array-axis1_coord","Y Position"))
+                        metadata.AddMetaDatum(snde.metadatum("nde_array-axis0_units","tan_horiz_angle"))
+                        metadata.AddMetaDatum(snde.metadatum("nde_array-axis1_units","tan_vert_angle"))
+                        metadata.AddMetaDatum(snde.metadatum("nde_array-ampl_units","mm"))
+                        
+
+                        if self._depth_data_mode!="IMAGE": # POINTCLOUD
+                            # Enable point cloud style rendering
+                            metadata.AddMetaDatum(snde.metadatum("snde_render_goal","SNDE_SRG_POINTCLOUD"))
+                            metadata.AddMetaDatum(snde.metadatum("nde_array-ampl_coord","Position"))
+                            pass
+                        else:
+                            metadata.AddMetaDatum(snde.metadatum("nde_array-ampl_coord","Z Position"))
+                            pass
+                        
+                        depth_recording_ref.rec.metadata = metadata 
+
+                        
+                        depth_recording_ref.rec.mark_metadata_done()
+                        depth_recording_ref.allocate_storage([depth_width,depth_height],True) # Fortran mode
+
+                        depth_data_array = depth_recording_ref.data()
+                        #sys.stderr.write("depth shape=%s; depth dtype=%s; depth nbytes=%d\n" % (str(depth_data_array.shape),str(depth_data_array.dtype),depth_data_array.nbytes))
+                        if self._depth_data_type == "INT":
+                            depth_data_array_view= depth_data_array.view(np.int16)
+                            pass
+                        else: # FLOAT
+                            depth_data_array_view= depth_data_array.view(np.float32)
+                            pass
+
+                        #sys.stderr.write("depth view shape=%s; depth dtype=%s; depth nbytes=%d\n" % (str(depth_data_array_view.shape),str(depth_data_array_view.dtype),depth_data_array_view.nbytes))
+                        if self._depth_data_mode=="IMAGE":
+                            depth_data_array_view = depth_data_array_view.reshape(depth_width,depth_height,order='F')
+                            pass
+                        else: # POINTCLOUD                            
+                            depth_data_array_view = depth_data_array_view.reshape(3,depth_width,depth_height,order='F')
+                            pass
+                        
+                        cur_acq.get_depth_data(LowLevel,depth_data_array_view, depth_width, depth_height,self._depth_data_mode != "IMAGE",self._depth_data_type != "INT")
+                        if np.isnan(depth_data_array_view).any():
+                            raise ValueError("NaN's")
+                        
+                    
+                        depth_recording_ref.rec.mark_as_ready()
+                        pass
+                    # !!! Need some way to tell this thread to quit when the user exits !!!***
+                    pass
+
+                cur_acq.release_buffers()
+                
+                if self._calcsync:
+                    globalrev.wait_complete()
+                    
+                    pass
+                pass
             
             pass
         
