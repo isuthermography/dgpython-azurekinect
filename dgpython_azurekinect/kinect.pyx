@@ -460,6 +460,9 @@ cdef extern from "k4a/k4a.h" nogil:
 
     pass
 
+
+k4a_meters_per_lsb=1.0e-3 # distance per least signficant bit of these various numbers recorded (1mm)
+
 # Note: Once Cython 3.x is widely available it should be possible
 # to replace this mapping via scoped enumerations and cpdef enum
 # https://cython.readthedocs.io/en/latest/src/userguide/wrapping_CPlusPlus.html#scoped-enumerations
@@ -652,12 +655,12 @@ cdef class K4AAcquisition:
                     k4a_array = PyArray_New(np.ndarray,2,dims,NPY_SHORT,strides,<void *>k4a_image_get_buffer(depth_image),2,0,None)
                     if float_flag:
                         # When we generate output in floating point we generate it in spatialnde2 (OpenGL)
-                        # coordinates vs. the native integer output from the Azure Kinect is in
-                        # OpenCV coordinates.
+                        # coordinates in meters vs. the native integer output from the Azure Kinect is in
+                        # OpenCV coordinates in mm.
                         
                         # Negate z coordinates in the depth image; we will also invert the y
                         # axis interpretation via metadata. 
-                        buffer[:,:] = -k4a_array
+                        buffer[:,:] = (-k4a_meters_per_lsb)*k4a_array
                         pass
                     else:
                         buffer[:,:] = k4a_array
@@ -719,9 +722,9 @@ cdef class K4AAcquisition:
                         # OpenCV coordinates.
 
                         # Transfer x coordinates unchanged into the point cloud.
-                        buffer[0,:,:] = k4a_array[0,:,:]
+                        buffer[0,:,:] = k4a_meters_per_lsb*k4a_array[0,:,:]
                         # Negate y and z coordinates in the point cloud.                        
-                        buffer[1:3,:,:] = -k4a_array[1:3,:,:]
+                        buffer[1:3,:,:] = (-k4a_meters_per_lsb)*k4a_array[1:3,:,:]
                         
                         #Py_DECREF(k4a_array) # prevent memory leak (not necessary as it turns out)
                         del k4a_array
@@ -1401,7 +1404,7 @@ class K4A(object,metaclass=dgpy_Module):
                         # Assign color_recording ref...
                         pass
                     globalrev = transact.end_transaction()
-
+                    
                     if self.result_depth_channel_ptr is not None:
                         calibration = LowLevel.calibration
                         # Starting from OpenCV calibration documentation
@@ -1423,8 +1426,13 @@ class K4A(object,metaclass=dgpy_Module):
                         metadata.AddMetaDatum(snde.metadatum("nde_array-axis1_coord","Y Position"))
                         metadata.AddMetaDatum(snde.metadatum("nde_array-axis0_units","tan_horiz_angle"))
                         metadata.AddMetaDatum(snde.metadatum("nde_array-axis1_units","tan_vert_angle"))
-                        metadata.AddMetaDatum(snde.metadatum("nde_array-ampl_units","mm"))
-                        
+                        if self._depth_data_type == "INT":
+                            metadata.AddMetaDatum(snde.metadatum("nde_array-ampl_units","mm"))
+                            pass
+                        else:
+                            # we scale by k4a_meters_per_lsb when generating floats
+                            metadata.AddMetaDatum(snde.metadatum("nde_array-ampl_units","m"))
+                            pass
 
                         if self._depth_data_mode!="IMAGE": # POINTCLOUD
                             # Enable point cloud style rendering
@@ -1472,7 +1480,9 @@ class K4A(object,metaclass=dgpy_Module):
                 
                 if self._calcsync:
                     globalrev.wait_complete()
-                    
+                    #print("Globalrev %d/%d is complete" % (globalrev.globalrev,globalrev.unique_index))
+                    #import time
+                    #time.sleep(5)
                     pass
                 pass
             
