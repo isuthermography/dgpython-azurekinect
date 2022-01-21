@@ -10,7 +10,7 @@ import dataguzzler_python
 
 ext_modules=cythonize(Extension("dgpython_azurekinect.kinect",
                                 sources=["dgpython_azurekinect/kinect.pyx"],
-                                libraries=["k4a"]),
+                                libraries=["k4a","k4arecord"]),
                       language_level=3)
 
 
