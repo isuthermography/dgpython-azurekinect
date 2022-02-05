@@ -1896,6 +1896,10 @@ class K4AFile(object,metaclass=dgpy_Module):
         device_serialnumber can be a string or None if only one camera is attached. """
 
         cdef K4AFileLowLevel LowLevel
+
+
+        if MKVFileName is None:
+            raise ValueError("K4AFile: Filename given as None")
         
         self.module_name = module_name
         self.recdb = recdb

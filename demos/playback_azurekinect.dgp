@@ -6,6 +6,7 @@ include(dgpy,"dgpy_startup.dpi") # If you get a NameError here, be sure you are 
 include(dgpy,"Qt.dpi",prefer_pyqt=False) 
 
 include(dgpy,"matplotlib.dpi")
+include(snde,"recdb.dpi",enable_opencl=True)
 include(snde,"recdb_gui.dpi")
 
 import dgpython_azurekinect as ak
