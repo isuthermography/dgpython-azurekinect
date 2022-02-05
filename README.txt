@@ -14,3 +14,9 @@ It is helpful to put these commands into a script, e.g. setupcmd.sh:
 python setup.py build --with-azurekinect=/usr/local/src/k4a-1.4.1_ubuntu1804 && 
 sudo python setup.py install
 
+or setupcmd.bat:
+python setup.py build --with-azurekinect="c:\Program Files\Azure Kinect SDK v1.4.1"
+python setup.py install
+
+***!!! At the moment on Windows you need to manually copy the Azure Kinect DLLs 
+from the SDK into the dgpython-azurekinect installation location (alongside kinect.cp39-win_amd64.pyd)

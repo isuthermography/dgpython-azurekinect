@@ -1,4 +1,5 @@
 import os
+import sys
 import os.path
 import numpy as np
 from setuptools import setup,Extension
@@ -10,7 +11,8 @@ import dataguzzler_python
 
 ext_modules=cythonize(Extension("dgpython_azurekinect.kinect",
                                 sources=["dgpython_azurekinect/kinect.pyx"],
-                                libraries=["k4a","k4arecord"]),
+                                libraries=["k4a","k4arecord"],
+                                include_dirs=[np.get_include()]),
                       language_level=3)
 
 
@@ -31,19 +33,22 @@ class BuildCommand(build):
                 build_ext_cmd.include_dirs=[]
                 pass
             build_ext_cmd.include_dirs.append(os.path.join(self.with_azurekinect,'include'))
+            build_ext_cmd.include_dirs.append(os.path.join(self.with_azurekinect,'sdk','include'))
             if not hasattr(build_ext_cmd,"library_dirs") or build_ext_cmd.library_dirs is None:
                 build_ext_cmd.library_dirs=[]
                 pass
 
             build_ext_cmd.library_dirs.append(os.path.join(self.with_azurekinect,'lib'))
-
+            if sys.platform=="win32":
+                build_ext_cmd.library_dirs.append(os.path.join(self.with_azurekinect,'sdk','windows-desktop','amd64','release','lib'))
+                pass
             if not hasattr(build_ext_cmd,"rpath") or build_ext_cmd.rpath is None:
                 build_ext_cmd.rpath=[]
                 pass
-
-            build_ext_cmd.rpath.insert(0,os.path.join(self.with_azurekinect,'lib'))            
-            build_ext_cmd.rpath.insert(0,"$ORIGIN")
-
+            if sys.platform != "win32":
+                build_ext_cmd.rpath.insert(0,os.path.join(self.with_azurekinect,'lib'))            
+                build_ext_cmd.rpath.insert(0,"$ORIGIN")
+                pass
             
             pass
         build.finalize_options(self)
