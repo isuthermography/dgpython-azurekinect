@@ -1,9 +1,12 @@
 import os
 import sys
 import os.path
+import shutil
+import glob
 import numpy as np
 from setuptools import setup,Extension
 from distutils.command.build import build
+from distutils.command.install import install
 
 from Cython.Build import cythonize
 import dataguzzler_python
@@ -61,6 +64,48 @@ class BuildCommand(build):
         pass
     pass
 
+
+class InstallCommand(install):
+    user_options = install.user_options + [
+        ('with-azurekinect=',None,'Path to Azure Kinect SDK')
+    ]
+    def initialize_options(self):
+        install.initialize_options(self)
+        self.with_azurekinect = None
+        pass
+
+    def finalize_options(self):
+        if self.with_azurekinect is not None:
+            pass
+        install.finalize_options(self)
+        pass
+
+    def run(self):
+        #print("with_azurekinect=%s" % (self.with_azurekinect))
+        #print("ext[0].include_dirs=%s" % (str(ext_modules[0].include_dirs)))
+        install.run(self)
+        if sys.platform=="win32":
+            # install Azure Kinect DLL's in with our driver
+            print("Installing Azure Kinect DLLs into %s" % (self.install_lib))
+            dlldir = os.path.join(self.with_azurekinect,'sdk','windows-desktop','amd64','release','bin')
+            depthengine_dlls = glob.glob(os.path.join(dlldir,"depthengine*.dll"))
+            for depthengine_dll in depthengine_dlls:
+                source = depthengine_dll
+                destination = os.path.join(self.install_lib,"dgpython_azurekinect",os.path.split(depthengine_dll)[1])
+                print("  %s -> %s" % (source,destination))
+                shutil.copyfile(source,destination)
+                pass
+            for source in ["k4a.dll","k4a.pdb","k4arecord.dll","k4arecord.pdb"]:
+                sourcepath = os.path.join(dlldir,source)
+                destination = os.path.join(self.install_lib,"dgpython_azurekinect",source)
+                print("  %s -> %s" % (sourcepath,destination))
+                shutil.copyfile(sourcepath,destination)
+                pass
+            pass
+        pass
+    pass
+
+
 setup(name="dgpython_azurekinect",
       description="Azure Kinect module for dgpython",
       author="Stephen D. Holland",
@@ -68,4 +113,4 @@ setup(name="dgpython_azurekinect",
       ext_modules=ext_modules,
       zip_safe=False,
       packages=["dgpython_azurekinect"],
-      cmdclass = { 'build': BuildCommand })
+      cmdclass = { 'build': BuildCommand, "install": InstallCommand })
