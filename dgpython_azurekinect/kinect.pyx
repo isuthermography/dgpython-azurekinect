@@ -1671,6 +1671,7 @@ class K4A(object,metaclass=dgpy_Module):
                         if self._depth_data_mode!="IMAGE": # POINTCLOUD
                             # Enable point cloud style rendering
                             metadata.AddMetaDatum(snde.metadatum("snde_render_goal","SNDE_SRG_POINTCLOUD"))
+                            metadata.AddMetaDatum(snde.metadatum("snde_render_goal_3d","SNDE_SRG_POINTCLOUD"))
                             metadata.AddMetaDatum(snde.metadatum("nde_array-ampl_coord","Position"))
                             pass
                         else:
@@ -2082,6 +2083,7 @@ class K4AFile(object,metaclass=dgpy_Module):
                         if self._depth_data_mode!="IMAGE": # POINTCLOUD
                             # Enable point cloud style rendering
                             metadata.AddMetaDatum(snde.metadatum("snde_render_goal","SNDE_SRG_POINTCLOUD"))
+                            metadata.AddMetaDatum(snde.metadatum("snde_render_goal_3d","SNDE_SRG_POINTCLOUD"))
                             metadata.AddMetaDatum(snde.metadatum("nde_array-ampl_coord","Position"))
                             pass
                         else:
