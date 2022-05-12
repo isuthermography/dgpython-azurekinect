@@ -13,11 +13,17 @@ import dgpython_azurekinect as ak
 
 import time
 
-plt.ion()
 
 k4a = ak.K4A("k4a",recdb, None, "/k4achan" )
 k4a.depth_data_mode = "POINTCLOUD"
+
+# Illustration of how to add dynamic metadata:
+#k4a.dynamic_metadata.AddStaticMetaDatum("/k4achan","testmd","testmd_value")
+#k4a.dynamic_metadata.AddDynamicMetaDatum("/k4achan","testmd",lambda: k4a.depth_mode)
+
 k4a.running=True # Start capture
+
+
 
 
 #time.sleep(2)

@@ -6,6 +6,7 @@ import collections
 import time
 import traceback
 import ctypes
+import atexit
 from threading import Thread
 
 import spatialnde2 as snde
@@ -19,10 +20,13 @@ from dataguzzler_python.dgpy import Module as dgpy_Module
 from dataguzzler_python.dgpy import CurContext
 from dataguzzler_python.dgpy import RunInContext
 from dataguzzler_python.dgpy import InitCompatibleThread
-# Very important to use dataguzzler_python condition variables
-# NOT native python condition variables as the dataguzzler_python
-# version avoids cross-module deadlocks. 
-from dataguzzler_python.lock import Condition  
+from dataguzzler_python.dynamic_metadata import DynamicMetadata
+
+## OBSOLETE: Very important to use dataguzzler_python condition variables
+## NOT native python condition variables as the dataguzzler_python
+## version avoids cross-module deadlocks. 
+##from dataguzzler_python.lock import Condition
+from threading import Condition
 
 #import pint # units library
 
@@ -1197,17 +1201,22 @@ class K4A(object,metaclass=dgpy_Module):
     result_color_channel_ptr = None # swig-wrapped shared pointer to snde::channel
     _capture_thread = None
 
-    _capture_running_cond = None # dataguzzler-python Condition variable for waiting on capture_running
+    _capture_running_cond = None # dataguzzler-python Condition variable for waiting on capture_running. This is after the module context locks in the locking order, after transaction locks, but before other spatialnde2 locks
     _capture_running = None  # Boolean, written only by sub-thread with capture_running_cond locked
     _capture_start = None  # Boolean, set only by main thread and cleared only by sub-thread with capture_running_cond locked
     _capture_stop = None  # Boolean, set only by main thread and cleared only by sub-thread with capture_running_cond locked
     _capture_failed = None # Boolean, set only by sub thread and cleared only by main thread to indicate a failure condition
+    _capture_exit = None # Boolean, set only by main thread; triggers sub thread to exit. 
+    _previous_globalrev_complete_waiter = None # Used for _calcsync mode; set only by sub thread with capture_running_cond locked but used by main thread
 
     _desired_run_state = None
 
     _depth_data_mode = None
     _depth_data_type = None
     _calcsync = None
+
+    dynamic_metadata = None
+
     
     @property
     def running(self):
@@ -1281,8 +1290,8 @@ class K4A(object,metaclass=dgpy_Module):
 
     @property
     def camera_fps(self):
-        cdef K4ALowLevel LowLevel = self.LowLevel
-        return LowLevel.config.camera_fps
+        #cdef K4ALowLevel LowLevel = self.LowLevel
+        return self.LowLevel.config.camera_fps
     @camera_fps.setter
     def camera_fps(self,value):
         cdef K4ALowLevel LowLevel = self.LowLevel
@@ -1442,6 +1451,11 @@ class K4A(object,metaclass=dgpy_Module):
         # call with self._capture_running_cond locked
         self._capture_stop=True
         self.LowLevel.halt_from_other_thread()
+        prevcomplete_waiter = self._previous_globalrev_complete_waiter
+        if prevcomplete_waiter is not None:
+            prevcomplete_waiter.interrupt()
+            pass
+        
         self._capture_running_cond.wait_for(lambda: not self._capture_running)
         pass
 
@@ -1488,7 +1502,8 @@ class K4A(object,metaclass=dgpy_Module):
         self._capture_stop = False
         self._capture_failed = False
         self._desired_run_state = False
-
+        self._capture_exit = False
+        
         # Default configuration
         LowLevel = self.LowLevel
         LowLevel.config = K4A_DEVICE_CONFIG_INIT_DISABLE_ALL
@@ -1516,7 +1531,8 @@ class K4A(object,metaclass=dgpy_Module):
         self._depth_data_mode = "POINTCLOUD"
         self._depth_data_type = "FLOAT"
         self._calcsync = True
-        
+
+        self.dynamic_metadata = DynamicMetadata(module_name)
         
         # Transaction required to add a channel
         transact = snde.active_transaction(recdb)
@@ -1538,6 +1554,18 @@ class K4A(object,metaclass=dgpy_Module):
         #with self._capture_running_cond:
         #    self._capture_running_cond.wait_for(lambda: self._capture_running is not None)
         #    pass
+
+        atexit.register(self.atexit) # Register an atexit function so that we can cleanly trigger our subthread to end. Otherwise we might well crash on exit.
+        pass
+
+    def atexit(self):
+        #print("kinect: Performing atexit()")
+        with self._capture_running_cond:
+            self._capture_exit = True;
+            self._stop_temporarily()
+            pass
+
+        self.capture_thread.join()
         
         pass
     
@@ -1549,7 +1577,7 @@ class K4A(object,metaclass=dgpy_Module):
         cdef size_t depth_height
         cdef k4a_calibration_t calibration
         cdef K4ALowLevel LowLevel
-        
+
         InitCompatibleThread(self,"_k4a_capture_thread")
         LowLevel = self.LowLevel
         
@@ -1564,26 +1592,69 @@ class K4A(object,metaclass=dgpy_Module):
         while True:
 
             with self._capture_running_cond:
-                self._capture_running_cond.wait_for(lambda: self._capture_start)
+                self._capture_running_cond.wait_for(lambda: self._capture_start or self._capture_exit)
 
-                try:
-                    LowLevel.start_capture()
-                    self._capture_running = True
-                    self._capture_start = False
-                    self._capture_running_cond.notify_all()
+                if self._capture_start:
+                    try:
+                        LowLevel.start_capture()
+                        self._capture_running = True
+                        self._capture_start = False
+                        self._capture_running_cond.notify_all()
+                        pass
+                    except IOError as e:
+                        snde.snde_warning(str(e))
+                        self._capture_running=False
+                        self._capture_start = False
+                        self._capture_failed = True
+                        self._capture_running_cond.notify_all()
+                        pass
                     pass
-                except IOError as e:
-                    snde.snde_warning(str(e))
-                    self._capture_running=False
-                    self._capture_start = False
-                    self._capture_failed = True
-                    self._capture_running_cond.notify_all()
-                    pass
-                
                 
                 pass
 
+            if self._capture_exit:
+                return
+
             while self._capture_running:  # Other threads not allowed to change this variable so we are safe to read it
+
+                with self._capture_running_cond:
+                    previous_globalrev_complete_waiter = self._previous_globalrev_complete_waiter
+                    # Check for stop request
+                    if self._capture_stop:
+                        self._capture_running=False
+                        self._capture_stop=False
+                        self._capture_running_cond.notify_all()
+                        break
+                    pass
+                
+                    
+                
+                if previous_globalrev_complete_waiter is not None:
+
+                    # If we need to wait for the previous globalrev to be complete
+                    # before starting a new acquisition, wait here.
+                    # This can be interrupted from the other thread
+                    # by calling previous_globalrev_complete_waiter.interrupt()
+                    interrupted = previous_globalrev_complete_waiter.wait_interruptable()
+                    with self._capture_running_cond:
+                        if not interrupted:
+                            # waiter satisfied
+                            self._previous_globalrev_complete_waiter = None
+                            pass
+                                        
+                        # Check for stop request
+                        if self._capture_stop:
+                            self._capture_running=False
+                            self._capture_stop=False
+                            self._capture_running_cond.notify_all()
+                            break
+
+                        if interrupted:
+                            continue  # So we can wait again if we were interrupted and somehow didn't have a stop request
+                        pass
+
+                    
+                    pass
                 
                 try:
                     cur_acq = LowLevel.wait_frame(K4A_WAIT_INFINITE)
@@ -1637,7 +1708,16 @@ class K4A(object,metaclass=dgpy_Module):
                     if self.result_color_channel_ptr is not None:
                         # Assign color_recording ref...
                         pass
-                    globalrev = transact.end_transaction()
+
+                    depth_recording_ref.rec.recording_needs_dynamic_metadata()
+
+                    transobj = transact.run_in_background_and_end_transaction(self.dynamic_metadata.Snapshot().Acquire,(depth_recording_ref.rec))
+                    if self._calcsync:
+                        with self._capture_running_cond:
+                            #print(dir(transobj))
+                            self._previous_globalrev_complete_waiter = transobj.get_transaction_globalrev_complete_waiter()
+                            pass
+                        pass
                     
                     if self.result_depth_channel_ptr is not None:
                         calibration = LowLevel.calibration
@@ -1706,20 +1786,19 @@ class K4A(object,metaclass=dgpy_Module):
                             raise ValueError("NaN's")
                         
                     
-                        depth_recording_ref.rec.mark_as_ready()
+                        depth_recording_ref.rec.mark_data_ready()
                         pass
-                    # !!! Need some way to tell this thread to quit when the user exits !!!***
                     pass
 
                 cur_acq.release_buffers()
                 
-                if self._calcsync:
-                    globalrev.wait_complete()
-                    #print("Globalrev %d/%d is complete" % (globalrev.globalrev,globalrev.unique_index))
-                    #import time
-                    #time.sleep(5)
-                    pass
-                pass
+                #if self._calcsync:
+                #    globalrev.wait_complete()
+                #    #print("Globalrev %d/%d is complete" % (globalrev.globalrev,globalrev.unique_index))
+                #    #import time
+                #    #time.sleep(5)
+                #    pass
+                #pass
             
             pass
         
@@ -2125,7 +2204,7 @@ class K4AFile(object,metaclass=dgpy_Module):
                             raise ValueError("NaN's")
                         
                     
-                        depth_recording_ref.rec.mark_as_ready()
+                        depth_recording_ref.rec.mark_data_ready()
                         pass
                     # !!! Need some way to tell this thread to quit when the user exits !!!***
                     pass
