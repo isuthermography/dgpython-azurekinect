@@ -26,7 +26,7 @@ from dataguzzler_python.dynamic_metadata import DynamicMetadata
 ## NOT native python condition variables as the dataguzzler_python
 ## version avoids cross-module deadlocks. 
 ##from dataguzzler_python.lock import Condition
-from threading import Condition
+from threading import Condition,Lock
 
 #import pint # units library
 
@@ -913,6 +913,7 @@ cdef class K4ALowLevel:
     cdef k4a_calibration_type_t point_cloud_frame # K4A_CALIBRATION_TYPE_DEPTH or K4A_CALIBRATION_TYPE_COLOR
     
     cdef k4a_device_configuration_t config
+    cdef object config_lock
 
     def __cinit__(self,serial_number_str_or_none):
         #""" channel_ptr should be a swig-rwapped shared_ptr to snde::channel"""
@@ -926,6 +927,7 @@ cdef class K4ALowLevel:
         #self.result_chan_ptr = channel_ptr 
         
         self.dev=NULL
+        self.config_lock=Lock()
         self.serial_number = None
         #self.calibration=NULL
         self.transformation=NULL
@@ -993,7 +995,12 @@ cdef class K4ALowLevel:
         pass
     
     def get_running_depth_pixel_shape(self):
-        cdef k4a_depth_mode_t depth_mode = self.config.depth_mode
+        cdef k4a_depth_mode_t depth_mode
+
+        with self.config_lock:
+            depth_mode = self.config.depth_mode
+            pass
+        
         assert(self.capture_running)
         
         if depth_mode == K4A_DEPTH_MODE_NFOV_2X2BINNED :
@@ -1013,8 +1020,11 @@ cdef class K4ALowLevel:
         cdef k4a_result_t errcode
 
         assert(not self.capture_running)
+
+        with self.config_lock:
+            errcode = k4a_device_get_calibration(self.dev,self.config.depth_mode,self.config.color_resolution,&self.calibration)
+            pass
         
-        errcode = k4a_device_get_calibration(self.dev,self.config.depth_mode,self.config.color_resolution,&self.calibration)
         if errcode != K4A_RESULT_SUCCEEDED:
             raise IOError("Error obtaining Azure Kinect device calibration (device serial %s)" % (self.serial_number))
 
@@ -1025,9 +1035,11 @@ cdef class K4ALowLevel:
         
         
         self.transformation = k4a_transformation_create(&self.calibration)
-        
-        errcode = k4a_device_start_cameras(self.dev,&self.config)
 
+        with self.config_lock:
+            errcode = k4a_device_start_cameras(self.dev,&self.config)
+            pass
+        
         if errcode != K4A_RESULT_SUCCEEDED:
             raise IOError("Error starting Azure Kinect device capture (device serial %s): errcode = %d. Check if you have selected a supported configuration or try enabling debug messages with the K4A_ENABLE_LOG_TO_STDOUT=1 environment variable." % (self.serial_number,errcode))
 
@@ -1241,14 +1253,19 @@ class K4A(object,metaclass=dgpy_Module):
     @property
     def color_format(self):
         cdef K4ALowLevel LowLevel = self.LowLevel
-        return LowLevel.config.color_format
+        with LowLevel.config_lock:
+            return LowLevel.config.color_format
+        pass
+    
     @color_format.setter
     def color_format(self,value):
         cdef K4ALowLevel LowLevel = self.LowLevel
         value=int(value)
         with self._capture_running_cond:
             self._stop_temporarily()
-            LowLevel.config.color_format = value
+            with LowLevel.config_lock:
+                LowLevel.config.color_format = value
+                pass
             self._restart_if_appropriate()
             pass
         
@@ -1258,14 +1275,18 @@ class K4A(object,metaclass=dgpy_Module):
     @property
     def color_resolution(self):
         cdef K4ALowLevel LowLevel = self.LowLevel
-        return LowLevel.config.color_resolution
+        with LowLevel.config_lock:
+            return LowLevel.config.color_resolution
+        pass
     @color_resolution.setter
     def color_resolution(self,value):
         cdef K4ALowLevel LowLevel = self.LowLevel
         value=int(value)
         with self._capture_running_cond:
             self._stop_temporarily()
-            LowLevel.config.color_resolution = value
+            with LowLevel.config_lock:
+                LowLevel.config.color_resolution = value
+                pass
             self._restart_if_appropriate()
             pass        
         pass
@@ -1274,14 +1295,19 @@ class K4A(object,metaclass=dgpy_Module):
     @property
     def depth_mode(self):
         cdef K4ALowLevel LowLevel = self.LowLevel
-        return LowLevel.config.depth_mode
+        with LowLevel.config_lock:
+            return LowLevel.config.depth_mode
+        pass
+    
     @depth_mode.setter
     def depth_mode(self,value):
         cdef K4ALowLevel LowLevel = self.LowLevel
         value=int(value)
         with self._capture_running_cond:
             self._stop_temporarily()
-            LowLevel.config.depth_mode = value
+            with LowLevel.config_lock:
+                LowLevel.config.depth_mode = value
+                pass
             self._restart_if_appropriate()
             pass        
         pass
@@ -1290,15 +1316,20 @@ class K4A(object,metaclass=dgpy_Module):
 
     @property
     def camera_fps(self):
-        #cdef K4ALowLevel LowLevel = self.LowLevel
-        return self.LowLevel.config.camera_fps
+        cdef K4ALowLevel LowLevel = self.LowLevel
+        with LowLevel.config_lock:
+            return LowLevel.config.camera_fps
+        pass
+    
     @camera_fps.setter
     def camera_fps(self,value):
         cdef K4ALowLevel LowLevel = self.LowLevel
         value=int(value)
         with self._capture_running_cond:
             self._stop_temporarily()
-            LowLevel.config.camera_fps = value
+            with LowLevel.config_lock:
+                LowLevel.config.camera_fps = value
+                pass
             self._restart_if_appropriate()
             pass        
         pass
@@ -1306,14 +1337,19 @@ class K4A(object,metaclass=dgpy_Module):
     @property
     def synchronized_images_only(self):
         cdef K4ALowLevel LowLevel = self.LowLevel
-        return LowLevel.config.synchronized_images_only
+        with LowLevel.config_lock:
+            return LowLevel.config.synchronized_images_only
+        pass
+    
     @synchronized_images_only.setter
     def synchronized_images_only(self,value):
         cdef K4ALowLevel LowLevel = self.LowLevel
         value = bool(value)
         with self._capture_running_cond:
             self._stop_temporarily()
-            LowLevel.config.synchronized_images_only = value
+            with LowLevel.config_lock:
+                LowLevel.config.synchronized_images_only = value
+                pass
             self._restart_if_appropriate()
             pass        
         pass
@@ -1321,14 +1357,19 @@ class K4A(object,metaclass=dgpy_Module):
     @property
     def depth_delay_off_color_usec(self):
         cdef K4ALowLevel LowLevel = self.LowLevel
-        return LowLevel.config.depth_delay_off_color_usec
+        with LowLevel.config_lock:
+            return LowLevel.config.depth_delay_off_color_usec
+        pass
+    
     @depth_delay_off_color_usec.setter
     def depth_delay_off_color_usec(self,value):
         cdef K4ALowLevel LowLevel = self.LowLevel
         value=int(value)
         with self._capture_running_cond:
             self._stop_temporarily()
-            LowLevel.config.depth_delay_off_color_usec = value
+            with LowLevel.config_lock:
+                LowLevel.config.depth_delay_off_color_usec = value
+                pass
             self._restart_if_appropriate()
             pass        
         pass
@@ -1337,14 +1378,18 @@ class K4A(object,metaclass=dgpy_Module):
     @property
     def wired_sync_mode(self):
         cdef K4ALowLevel LowLevel = self.LowLevel
-        return LowLevel.config.wired_sync_mode
+        with LowLevel.config_lock:
+            return LowLevel.config.wired_sync_mode
+        pass
     @wired_sync_mode.setter
     def wired_sync_mode(self,value):
         cdef K4ALowLevel LowLevel = self.LowLevel
         value=int(value)
         with self._capture_running_cond:
             self._stop_temporarily()
-            LowLevel.config.wired_sync_mode = value
+            with LowLevel.config_lock:
+                LowLevel.config.wired_sync_mode = value
+                pass
             self._restart_if_appropriate()
             pass        
         pass
@@ -1352,14 +1397,18 @@ class K4A(object,metaclass=dgpy_Module):
     @property
     def subordinate_delay_off_master_usec(self):
         cdef K4ALowLevel LowLevel = self.LowLevel
-        return LowLevel.config.subordinate_delay_off_master_usec
+        with LowLevel.config_lock:
+            return LowLevel.config.subordinate_delay_off_master_usec
+        pass
     @subordinate_delay_off_master_usec.setter
     def subordinate_delay_off_master_usec(self,value):
         cdef K4ALowLevel LowLevel = self.LowLevel
         value=int(value)
         with self._capture_running_cond:
             self._stop_temporarily()
-            LowLevel.config.subordinate_delay_off_master_usec = value
+            with LowLevel.config_lock:
+                LowLevel.config.subordinate_delay_off_master_usec = value
+                pass
             self._restart_if_appropriate()
             pass        
         pass
@@ -1367,14 +1416,18 @@ class K4A(object,metaclass=dgpy_Module):
     @property
     def disable_streaming_indicator(self):
         cdef K4ALowLevel LowLevel = self.LowLevel
-        return LowLevel.config.disable_streaming_indicator
+        with LowLevel.config_lock:
+            return LowLevel.config.disable_streaming_indicator
+        pass
     @disable_streaming_indicator.setter
     def disable_streaming_indicator(self,value):
         cdef K4ALowLevel LowLevel = self.LowLevel
         value = bool(value)
         with self._capture_running_cond:
             self._stop_temporarily()
-            LowLevel.config.disable_streaming_indicator = value
+            with LowLevel.config_lock:
+                LowLevel.config.disable_streaming_indicator = value
+                pass
             self._restart_if_appropriate()
             pass        
         pass
@@ -1506,27 +1559,29 @@ class K4A(object,metaclass=dgpy_Module):
         
         # Default configuration
         LowLevel = self.LowLevel
-        LowLevel.config = K4A_DEVICE_CONFIG_INIT_DISABLE_ALL
-        if result_color_channel_name is not None:
-            LowLevel.config.color_format = K4A_IMAGE_FORMAT_COLOR_BGRA32
-            LowLevel.config.color_resolution = K4A_COLOR_RESOLUTION_720P
-            pass
-
-        if result_depth_channel_name is not None:
-            LowLevel.config.depth_mode = K4A_DEPTH_MODE_NFOV_UNBINNED         # will give 640x576 array
-            pass
+        with LowLevel.config_lock:
+            LowLevel.config = K4A_DEVICE_CONFIG_INIT_DISABLE_ALL
+            if result_color_channel_name is not None:
+                LowLevel.config.color_format = K4A_IMAGE_FORMAT_COLOR_BGRA32
+                LowLevel.config.color_resolution = K4A_COLOR_RESOLUTION_720P
+                pass
+            
+            if result_depth_channel_name is not None:
+                LowLevel.config.depth_mode = K4A_DEPTH_MODE_NFOV_UNBINNED         # will give 640x576 array
+                pass
         
 
-        LowLevel.config.camera_fps = K4A_FRAMES_PER_SECOND_30
+            LowLevel.config.camera_fps = K4A_FRAMES_PER_SECOND_30
 
-        if result_color_channel_name is not None and result_depth_channel_name is not None:
-            LowLevel.config.synchronized_images_only = True
+            if result_color_channel_name is not None and result_depth_channel_name is not None:
+                LowLevel.config.synchronized_images_only = True
+                pass
+            
+            LowLevel.config.wired_sync_mode = K4A_WIRED_SYNC_MODE_STANDALONE
+            LowLevel.config.subordinate_delay_off_master_usec = 0  # use 160 for a secondary camera
+            LowLevel.config.disable_streaming_indicator = False
+            LowLevel.point_cloud_frame = K4A_CALIBRATION_TYPE_DEPTH
             pass
-        
-        LowLevel.config.wired_sync_mode = K4A_WIRED_SYNC_MODE_STANDALONE
-        LowLevel.config.subordinate_delay_off_master_usec = 0  # use 160 for a secondary camera
-        LowLevel.config.disable_streaming_indicator = False
-        LowLevel.point_cloud_frame = K4A_CALIBRATION_TYPE_DEPTH
         
         self._depth_data_mode = "POINTCLOUD"
         self._depth_data_type = "FLOAT"
@@ -1535,7 +1590,7 @@ class K4A(object,metaclass=dgpy_Module):
         self.dynamic_metadata = DynamicMetadata(module_name)
         
         # Transaction required to add a channel
-        transact = snde.active_transaction(recdb)
+        transact = recdb.start_transaction()
 
         if result_depth_channel_name is not None:
             self.result_depth_channel_ptr = recdb.reserve_channel(snde.channelconfig(result_depth_channel_name,module_name,self,False))
@@ -1575,6 +1630,7 @@ class K4A(object,metaclass=dgpy_Module):
         cdef K4AAcquisition cur_acq=K4AAcquisition()
         cdef size_t depth_width
         cdef size_t depth_height
+        cdef k4a_depth_mode_t depth_mode
         cdef k4a_calibration_t calibration
         cdef K4ALowLevel LowLevel
 
@@ -1680,7 +1736,7 @@ class K4A(object,metaclass=dgpy_Module):
                 if self._capture_running: # Successful acquisition
                     (depth_width,depth_height) = LowLevel.get_running_depth_pixel_shape()
                     
-                    transact = snde.active_transaction(self.recdb)
+                    transact = self.recdb.start_transaction()
 
                     depth_recording_ref = None
                     color_recording_ref = None
@@ -1711,7 +1767,7 @@ class K4A(object,metaclass=dgpy_Module):
 
                     depth_recording_ref.rec.recording_needs_dynamic_metadata()
 
-                    transobj = transact.run_in_background_and_end_transaction(self.dynamic_metadata.Snapshot().Acquire,(depth_recording_ref.rec))
+                    transobj = transact.run_in_background_and_end_transaction(self.dynamic_metadata.Snapshot().Acquire,(depth_recording_ref.rec,))
                     if self._calcsync:
                         with self._capture_running_cond:
                             #print(dir(transobj))
@@ -1780,8 +1836,12 @@ class K4A(object,metaclass=dgpy_Module):
                         else: # POINTCLOUD                            
                             depth_data_array_view = depth_data_array_view.reshape(3,depth_width,depth_height,order='F')
                             pass
+
+                        with LowLevel.config_lock:
+                            depth_mode = LowLevel.config.depth_mode
+                            pass
                         
-                        cur_acq.get_depth_data(LowLevel.config.depth_mode,LowLevel.transformation,depth_data_array_view, depth_width, depth_height,self._depth_data_mode != "IMAGE",self._depth_data_type != "INT")
+                        cur_acq.get_depth_data(depth_mode,LowLevel.transformation,depth_data_array_view, depth_width, depth_height,self._depth_data_mode != "IMAGE",self._depth_data_type != "INT")
                         if np.isnan(depth_data_array_view).any():
                             raise ValueError("NaN's")
                         
@@ -2004,7 +2064,7 @@ class K4AFile(object,metaclass=dgpy_Module):
         
         
         # Transaction required to add a channel
-        transact = snde.active_transaction(recdb)
+        transact = recdb.start_transaction()
 
         if result_depth_channel_name is not None:
             self.result_depth_channel_ptr = recdb.reserve_channel(snde.channelconfig(result_depth_channel_name,module_name,self,False))
@@ -2099,7 +2159,7 @@ class K4AFile(object,metaclass=dgpy_Module):
                 if self._capture_running: # Successful acquisition
                     (depth_width,depth_height) = LowLevel.get_running_depth_pixel_shape()
                     
-                    transact = snde.active_transaction(self.recdb)
+                    transact = self.recdb.start_transaction()
 
                     depth_recording_ref = None
                     color_recording_ref = None
