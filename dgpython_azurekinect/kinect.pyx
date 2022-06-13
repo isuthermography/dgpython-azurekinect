@@ -49,6 +49,9 @@ import numpy as np
 cimport numpy as np
 from numpy cimport NPY_SHORT,PyArray_New,import_array,npy_intp
 
+
+orient_dtype = [('offset', '<f4', (4,)), ('quat', '<f4', (4,))]
+
 import_array()
 
 cdef extern from "k4a/k4a.h" nogil:
@@ -1015,7 +1018,60 @@ cdef class K4ALowLevel:
             return (1024,1024)
         pass
     
+
+    def get_calibration_extrinsics(self,unsigned source,unsigned target):
+        cdef k4a_result_t errcode
+        cdef k4a_calibration_t calibration
+        cdef float rotation[9];
+        cdef float translation[3];
         
+        if source >= <unsigned>K4A_CALIBRATION_TYPE_NUM:
+            raise ValueError("Invalid calibration source %u (see K4A_CALIBRATION_TYPE_xxxxx)" % (source))
+
+        if target >= <unsigned>K4A_CALIBRATION_TYPE_NUM:
+            raise ValueError("Invalid calibration target %u (see K4A_CALIBRATION_TYPE_xxxxx)" % (target))
+
+        with self.config_lock:
+            errcode = k4a_device_get_calibration(self.dev,self.config.depth_mode,self.config.color_resolution,&calibration)
+            pass
+
+        if errcode != K4A_RESULT_SUCCEEDED:
+            raise IOError("Error obtaining Azure Kinect device calibration (device serial %s)" % (self.serial_number))
+
+        rotation = calibration.extrinsics[source][target].rotation
+        translation = calibration.extrinsics[source][target].translation
+        
+        rotmtx = np.zeros((4,4),dtype='f',order="F")
+        rotmtx[0,0] = rotation[0]
+        rotmtx[0,1] = rotation[1]
+        rotmtx[0,2] = rotation[2]
+        rotmtx[1,0] = rotation[3]
+        rotmtx[1,1] = rotation[4]
+        rotmtx[1,2] = rotation[5]
+        rotmtx[2,0] = rotation[6]
+        rotmtx[2,1] = rotation[7]
+        rotmtx[2,2] = rotation[8]
+
+        rotmtx[0,3] = translation[0]
+        rotmtx[1,3] = translation[1]
+        rotmtx[2,3] = translation[2]
+        rotmtx[3,3] = 1.0
+
+        k4a_targetak_over_sourceak = snde.rotmtx_build_orientation(rotmtx.ravel(order="F"))
+        # This transformation is in the Azure Kinect coordinate convention. But we want it
+        # in terms of spatialnde2 coordinates which are (a) rotated 180 deg around x, and
+        # (b) offsets in meters instead of mm.
+
+        gl_over_ak = np.array(((0.0,0.0,0.0,0.0),(1.0,0.0,0.0,0.0)),dtype=orient_dtype) # pi rotation about x axis
+        ak_over_gl = snde.orientation_inverse(gl_over_ak) # not actually different
+
+        k4a_targetgl_over_sourcegl_mm = snde.orientation_orientation_multiply(gl_over_ak,snde.orientation_orientation_multiply(k4a_targetak_over_sourceak,ak_over_gl))
+        
+        k4a_targetgl_over_sourcegl = k4a_targetgl_over_sourcegl_mm.copy()
+        k4a_targetgl_over_sourcegl["offset"] = k4a_targetgl_over_sourcegl["offset"]/1000.0
+
+        return k4a_targetgl_over_sourcegl
+    
     def start_capture(self):
         cdef k4a_result_t errcode
 
@@ -1136,6 +1192,54 @@ cdef class K4AFileLowLevel:
             self.playback=NULL
             pass
         pass
+
+
+    def get_calibration_extrinsics(self,unsigned source,unsigned target):
+        cdef float rotation[9];
+        cdef float translation[3];
+        
+        if source >= <unsigned>K4A_CALIBRATION_TYPE_NUM:
+            raise ValueError("Invalid calibration source %u (see K4A_CALIBRATION_TYPE_xxxxx)" % (source))
+
+        if target >= <unsigned>K4A_CALIBRATION_TYPE_NUM:
+            raise ValueError("Invalid calibration target %u (see K4A_CALIBRATION_TYPE_xxxxx)" % (target))
+
+
+
+        rotation = self.calibration.extrinsics[source][target].rotation
+        translation = self.calibration.extrinsics[source][target].translation
+        
+        rotmtx = np.zeros((4,4),dtype='f',order="F")
+        rotmtx[0,0] = rotation[0]
+        rotmtx[0,1] = rotation[1]
+        rotmtx[0,2] = rotation[2]
+        rotmtx[1,0] = rotation[3]
+        rotmtx[1,1] = rotation[4]
+        rotmtx[1,2] = rotation[5]
+        rotmtx[2,0] = rotation[6]
+        rotmtx[2,1] = rotation[7]
+        rotmtx[2,2] = rotation[8]
+
+        rotmtx[0,3] = translation[0]
+        rotmtx[1,3] = translation[1]
+        rotmtx[2,3] = translation[2]
+        rotmtx[3,3] = 1.0
+
+        k4a_targetak_over_sourceak = snde.rotmtx_build_orientation(rotmtx.ravel(order="F"))
+        # This transformation is in the Azure Kinect coordinate convention. But we want it
+        # in terms of spatialnde2 coordinates which are (a) rotated 180 deg around x, and
+        # (b) offsets in meters instead of mm.
+
+        gl_over_ak = np.array(((0.0,0.0,0.0,0.0),(1.0,0.0,0.0,0.0)),dtype=orient_dtype) # pi rotation about x axis
+        ak_over_gl = snde.orientation_inverse(gl_over_ak) # not actually different
+
+        k4a_targetgl_over_sourcegl_mm = snde.orientation_orientation_multiply(gl_over_ak,snde.orientation_orientation_multiply(k4a_targetak_over_sourceak,ak_over_gl))
+        
+        k4a_targetgl_over_sourcegl = k4a_targetgl_over_sourcegl_mm.copy()
+        k4a_targetgl_over_sourcegl["offset"] = k4a_targetgl_over_sourcegl["offset"]/1000.0
+
+        return k4a_targetgl_over_sourcegl
+
     
     def get_running_depth_pixel_shape(self):
         assert(self.capture_running)
