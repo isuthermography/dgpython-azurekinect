@@ -7,3 +7,4 @@ dist
 dataguzzler_python.egg-info
 dgpython_azurekinect/kinect.cpp
 setupcmd.sh
+setupcmd.bat
