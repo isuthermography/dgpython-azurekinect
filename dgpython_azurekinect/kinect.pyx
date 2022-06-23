@@ -1871,6 +1871,8 @@ class K4A(object,metaclass=dgpy_Module):
 
                     depth_recording_ref.rec.recording_needs_dynamic_metadata()
 
+                    assert(self._previous_globalrev_complete_waiter is None)
+
                     transobj = transact.run_in_background_and_end_transaction(self.dynamic_metadata.Snapshot().Acquire,(depth_recording_ref.rec,))
                     if self._calcsync:
                         with self._capture_running_cond:
