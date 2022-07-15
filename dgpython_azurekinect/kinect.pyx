@@ -1848,19 +1848,19 @@ class K4A(object,metaclass=dgpy_Module):
                     if self.result_depth_channel_ptr is not None:
                         if self._depth_data_mode == "IMAGE":
                             if self._depth_data_type == "INT":
-                                depth_recording_ref = snde.create_recording_ref(self.recdb,self.result_depth_channel_ptr,self,snde.SNDE_RTN_INT16)
+                                depth_recording_ref = snde.create_ndarray_ref(self.recdb,self.result_depth_channel_ptr,self,snde.SNDE_RTN_INT16)
                                 pass
                             else: # FLOAT
-                                depth_recording_ref = snde.create_recording_ref(self.recdb,self.result_depth_channel_ptr,self,snde.SNDE_RTN_FLOAT32)
+                                depth_recording_ref = snde.create_ndarray_ref(self.recdb,self.result_depth_channel_ptr,self,snde.SNDE_RTN_FLOAT32)
                                 pass
 
                             pass
                         else: #  self._depth_data_mode == "POINTCLOUD":
                             if self._depth_data_type == "INT":
-                                depth_recording_ref = snde.create_recording_ref(self.recdb,self.result_depth_channel_ptr,self,snde.SNDE_RTN_SNDE_COORD3_INT16)
+                                depth_recording_ref = snde.create_ndarray_ref(self.recdb,self.result_depth_channel_ptr,self,snde.SNDE_RTN_SNDE_COORD3_INT16)
                                 pass
                             else: # FLOAT
-                                depth_recording_ref = snde.create_recording_ref(self.recdb,self.result_depth_channel_ptr,self,snde.SNDE_RTN_SNDE_COORD3)
+                                depth_recording_ref = snde.create_ndarray_ref(self.recdb,self.result_depth_channel_ptr,self,snde.SNDE_RTN_SNDE_COORD3)
                                 pass
                             pass
                         pass
@@ -2273,19 +2273,19 @@ class K4AFile(object,metaclass=dgpy_Module):
                     if self.result_depth_channel_ptr is not None:
                         if self._depth_data_mode == "IMAGE":
                             if self._depth_data_type == "INT":
-                                depth_recording_ref = snde.create_recording_ref(self.recdb,self.result_depth_channel_ptr,self,snde.SNDE_RTN_INT16)
+                                depth_recording_ref = snde.create_ndarray_ref(self.recdb,self.result_depth_channel_ptr,self,snde.SNDE_RTN_INT16)
                                 pass
                             else: # FLOAT
-                                depth_recording_ref = snde.create_recording_ref(self.recdb,self.result_depth_channel_ptr,self,snde.SNDE_RTN_FLOAT32)
+                                depth_recording_ref = snde.create_ndarray_ref(self.recdb,self.result_depth_channel_ptr,self,snde.SNDE_RTN_FLOAT32)
                                 pass
 
                             pass
                         else: #  self._depth_data_mode == "POINTCLOUD":
                             if self._depth_data_type == "INT":
-                                depth_recording_ref = snde.create_recording_ref(self.recdb,self.result_depth_channel_ptr,self,snde.SNDE_RTN_SNDE_COORD3_INT16)
+                                depth_recording_ref = snde.create_ndarray_ref(self.recdb,self.result_depth_channel_ptr,self,snde.SNDE_RTN_SNDE_COORD3_INT16)
                                 pass
                             else: # FLOAT
-                                depth_recording_ref = snde.create_recording_ref(self.recdb,self.result_depth_channel_ptr,self,snde.SNDE_RTN_SNDE_COORD3)
+                                depth_recording_ref = snde.create_ndarray_ref(self.recdb,self.result_depth_channel_ptr,self,snde.SNDE_RTN_SNDE_COORD3)
                                 pass
                             pass
                         pass
