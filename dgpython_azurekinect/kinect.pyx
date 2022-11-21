@@ -1108,19 +1108,22 @@ cdef class K4ALowLevel:
         cdef k4a_capture_t capt=NULL;
         
         assert(self.capture_running)
-
-        with nogil: 
+        #sys.stderr.write("kinect.pyx k4a_device_get_capture start\n")
+        with nogil:
             waitresult = k4a_device_get_capture(self.dev,&capt,timeout_ms)
             pass
+        #sys.stderr.write("kinect.pyx k4a_device_get_capture end : waitresult = %d\n"%waitresult)
 
         monotonic_timestamp = time.monotonic()
         os_timestamp = time.time()
         
         if waitresult == K4A_WAIT_RESULT_TIMEOUT:
+            #sys.stderr.write("kinect.pyx : got K4A_WAIT_RESULT_TIMEOUT\n")
             return None
         elif waitresult == K4A_WAIT_RESULT_FAILED:
             k4a_device_stop_cameras(self.dev)  # per SDK instructions, issue stop instruction after error return from k4a_device_get_capture
             self.capture_running=False
+            #sys.stderr.write("kinect.pyx : got K4A_WAIT_RESULT_FAILED LowLevel.capture_running=False\n")
             raise IOError("k4a_device_get_capture failed on serial number %s" % (self.serial_number))
         
         assert(waitresult==K4A_WAIT_RESULT_SUCCEEDED)
@@ -1129,10 +1132,13 @@ cdef class K4ALowLevel:
     
     def halt_from_other_thread(self):
         # Per the documentation, this will make k4a_device_get_capture exit with an error message
+        #sys.stderr.write("kinect.pyx : halt_from_other_thread was called : self.capture_running = %s\n"%(str(self.capture_running)))
         k4a_device_stop_cameras(self.dev)
 
         pass
-    
+    def abort(self):
+        self.capture_running = False
+        pass
     pass
 
 
@@ -1752,7 +1758,9 @@ class K4A(object,metaclass=dgpy_Module):
         while True:
 
             with self._capture_running_cond:
+                #sys.stderr.write("kinect.pyx : About to call capture_running_cond.wait_for, LowLevel.capture_running = %s\n"%str(LowLevel.capture_running))
                 self._capture_running_cond.wait_for(lambda: self._capture_start or self._capture_exit)
+                #sys.stderr.write("kinect.pyx : capture_running_cond.wait_for has returned LowLevel.capture_running = %s self._capture_start = %s\n"%(str(LowLevel.capture_running),str(self._capture_start)))
 
                 if self._capture_start:
                     try:
@@ -1776,7 +1784,7 @@ class K4A(object,metaclass=dgpy_Module):
                 return
 
             while self._capture_running:  # Other threads not allowed to change this variable so we are safe to read it
-
+                aborted = False
                 with self._capture_running_cond:
                     previous_globalrev_complete_waiter = self._previous_globalrev_complete_waiter
                     # Check for stop request
@@ -1784,10 +1792,13 @@ class K4A(object,metaclass=dgpy_Module):
                         self._capture_running=False
                         self._capture_stop=False
                         self._capture_running_cond.notify_all()
-                        break
+                        aborted = True
+                        pass
                     pass
-                
                     
+                if aborted:
+                    LowLevel.abort()
+                    break
                 
                 if previous_globalrev_complete_waiter is not None:
 
@@ -1796,6 +1807,7 @@ class K4A(object,metaclass=dgpy_Module):
                     # This can be interrupted from the other thread
                     # by calling previous_globalrev_complete_waiter.interrupt()
                     interrupted = previous_globalrev_complete_waiter.wait_interruptable()
+                    aborted = False
                     with self._capture_running_cond:
                         if not interrupted:
                             # waiter satisfied
@@ -1807,11 +1819,14 @@ class K4A(object,metaclass=dgpy_Module):
                             self._capture_running=False
                             self._capture_stop=False
                             self._capture_running_cond.notify_all()
-                            break
-
-                        if interrupted:
-                            continue  # So we can wait again if we were interrupted and somehow didn't have a stop request
+                            aborted = True
+                            pass
                         pass
+                    if aborted:
+                        LowLevel.abort()
+                        break
+                    if interrupted:
+                        continue  # So we can wait again if we were interrupted and somehow didn't have a stop request
 
                     
                     pass
@@ -1830,6 +1845,9 @@ class K4A(object,metaclass=dgpy_Module):
                             self._capture_stop = False
                             pass
                         self._capture_running_cond.notify_all()
+                        if LowLevel.capture_running:
+                            LowLevel.abort()
+                            pass
                         pass
                     if not intentional_stop:
                         snde.snde_warning(str(e)) # print out warning message
