@@ -1020,6 +1020,7 @@ cdef class K4ALowLevel:
     
 
     def get_calibration_extrinsics(self,unsigned source,unsigned target):
+        cdef k4a_color_resolution_t color_res
         cdef k4a_result_t errcode
         cdef k4a_calibration_t calibration
         cdef float rotation[9];
@@ -1032,7 +1033,12 @@ cdef class K4ALowLevel:
             raise ValueError("Invalid calibration target %u (see K4A_CALIBRATION_TYPE_xxxxx)" % (target))
 
         with self.config_lock:
-            errcode = k4a_device_get_calibration(self.dev,self.config.depth_mode,self.config.color_resolution,&calibration)
+            color_res = self.config.color_resolution
+            # If the color resolution is not set, the k4a_device_get_calibration() will fail to get the calibration extrinsics for the color camera. Since calibration extrinsics do not depend on color resolution, we arbitrarily substitute 720p.
+            if color_res == K4A_COLOR_RESOLUTION_OFF:
+                color_res = K4A_COLOR_RESOLUTION_720P
+                pass
+            errcode = k4a_device_get_calibration(self.dev,self.config.depth_mode,color_res,&calibration)
             pass
 
         if errcode != K4A_RESULT_SUCCEEDED:
