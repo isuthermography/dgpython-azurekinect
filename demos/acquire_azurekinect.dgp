@@ -13,6 +13,7 @@ import dgpython_azurekinect as ak
 
 import time
 
+dgpython_release_main_thread()
 
 k4a = ak.K4A("k4a",recdb, None, "/k4achan" )
 k4a.depth_data_mode = "POINTCLOUD"
