@@ -1917,30 +1917,30 @@ class K4A(object,metaclass=dgpy_Module):
                         
                                                
                         metadata = snde.constructible_metadata()
-                        metadata.AddMetaDatum(snde.metadatum("nde_array-axis0_step",1.0/LowLevel.calibration.depth_camera_calibration.intrinsics.parameters.param.fx,"tan_horiz_angle"))
-                        metadata.AddMetaDatum(snde.metadatum("nde_array-axis1_step",-1.0/LowLevel.calibration.depth_camera_calibration.intrinsics.parameters.param.fy,"tan_vert_angle")) # negative step because our coordinate frames start at lower left corner but camera data starts at upper left
+                        metadata.AddMetaDatum(snde.metadatum("ande_array-axis0_step",1.0/LowLevel.calibration.depth_camera_calibration.intrinsics.parameters.param.fx,"tan_horiz_angle"))
+                        metadata.AddMetaDatum(snde.metadatum("ande_array-axis1_step",-1.0/LowLevel.calibration.depth_camera_calibration.intrinsics.parameters.param.fy,"tan_vert_angle")) # negative step because our coordinate frames start at lower left corner but camera data starts at upper left
                         #sys.stderr.write("Azure Kinect: dy=%f\n" %(1.0/LowLevel.calibration.depth_camera_calibration.intrinsics.parameters.param.fy))
-                        metadata.AddMetaDatum(snde.metadatum("nde_array-axis0_inival",-LowLevel.calibration.depth_camera_calibration.intrinsics.parameters.param.cx/LowLevel.calibration.depth_camera_calibration.intrinsics.parameters.param.fx,"tan_horiz_angle"))
-                        metadata.AddMetaDatum(snde.metadatum("nde_array-axis1_inival",(depth_height-LowLevel.calibration.depth_camera_calibration.intrinsics.parameters.param.cy-1)/LowLevel.calibration.depth_camera_calibration.intrinsics.parameters.param.fy,"tan_vert_angle"))
-                        metadata.AddMetaDatum(snde.metadatum("nde_array-axis0_coord","X Position"))
-                        metadata.AddMetaDatum(snde.metadatum("nde_array-axis1_coord","Y Position"))
+                        metadata.AddMetaDatum(snde.metadatum("ande_array-axis0_inival",-LowLevel.calibration.depth_camera_calibration.intrinsics.parameters.param.cx/LowLevel.calibration.depth_camera_calibration.intrinsics.parameters.param.fx,"tan_horiz_angle"))
+                        metadata.AddMetaDatum(snde.metadatum("ande_array-axis1_inival",(depth_height-LowLevel.calibration.depth_camera_calibration.intrinsics.parameters.param.cy-1)/LowLevel.calibration.depth_camera_calibration.intrinsics.parameters.param.fy,"tan_vert_angle"))
+                        metadata.AddMetaDatum(snde.metadatum("ande_array-axis0_coord","X Position"))
+                        metadata.AddMetaDatum(snde.metadatum("ande_array-axis1_coord","Y Position"))
                       
                         if self._depth_data_type == "INT":
-                            metadata.AddMetaDatum(snde.metadatum("nde_array-ampl_units","mm"))
+                            metadata.AddMetaDatum(snde.metadatum("ande_array-ampl_units","mm"))
                             pass
                         else:
                             # we scale by k4a_meters_per_lsb when generating floats
-                            metadata.AddMetaDatum(snde.metadatum("nde_array-ampl_units","m"))
+                            metadata.AddMetaDatum(snde.metadatum("ande_array-ampl_units","m"))
                             pass
 
                         if self._depth_data_mode!="IMAGE": # POINTCLOUD
                             # Enable point cloud style rendering
                             metadata.AddMetaDatum(snde.metadatum("snde_render_goal","SNDE_SRG_POINTCLOUD"))
                             metadata.AddMetaDatum(snde.metadatum("snde_render_goal_3d","SNDE_SRG_POINTCLOUD"))
-                            metadata.AddMetaDatum(snde.metadatum("nde_array-ampl_coord","Position"))
+                            metadata.AddMetaDatum(snde.metadatum("ande_array-ampl_coord","Position"))
                             pass
                         else:
-                            metadata.AddMetaDatum(snde.metadatum("nde_array-ampl_coord","Z Position"))
+                            metadata.AddMetaDatum(snde.metadatum("ande_array-ampl_coord","Z Position"))
                             pass
                         
                         depth_recording_ref.rec.metadata = metadata 
@@ -2331,30 +2331,30 @@ class K4AFile(object,metaclass=dgpy_Module):
                         
                                                
                         metadata = snde.constructible_metadata()
-                        metadata.AddMetaDatum(snde.metadatum("nde_array-axis0_step",1.0/LowLevel.calibration.depth_camera_calibration.intrinsics.parameters.param.fx,"tan_horiz_angle"))
-                        metadata.AddMetaDatum(snde.metadatum("nde_array-axis1_step",-1.0/LowLevel.calibration.depth_camera_calibration.intrinsics.parameters.param.fy,"tan_vert_angle")) # negative step because our coordinate frames start at lower left corner but camera data starts at upper left
+                        metadata.AddMetaDatum(snde.metadatum("ande_array-axis0_step",1.0/LowLevel.calibration.depth_camera_calibration.intrinsics.parameters.param.fx,"tan_horiz_angle"))
+                        metadata.AddMetaDatum(snde.metadatum("ande_array-axis1_step",-1.0/LowLevel.calibration.depth_camera_calibration.intrinsics.parameters.param.fy,"tan_vert_angle")) # negative step because our coordinate frames start at lower left corner but camera data starts at upper left
                         #sys.stderr.write("Azure Kinect: dy=%f\n" %(1.0/LowLevel.calibration.depth_camera_calibration.intrinsics.parameters.param.fy))
-                        metadata.AddMetaDatum(snde.metadatum("nde_array-axis0_inival",-LowLevel.calibration.depth_camera_calibration.intrinsics.parameters.param.cx/LowLevel.calibration.depth_camera_calibration.intrinsics.parameters.param.fx,"tan_horiz_angle"))
-                        metadata.AddMetaDatum(snde.metadatum("nde_array-axis1_inival",(depth_height-LowLevel.calibration.depth_camera_calibration.intrinsics.parameters.param.cy-1)/LowLevel.calibration.depth_camera_calibration.intrinsics.parameters.param.fy,"tan_vert_angle"))
-                        metadata.AddMetaDatum(snde.metadatum("nde_array-axis0_coord","X Position"))
-                        metadata.AddMetaDatum(snde.metadatum("nde_array-axis1_coord","Y Position"))
+                        metadata.AddMetaDatum(snde.metadatum("ande_array-axis0_inival",-LowLevel.calibration.depth_camera_calibration.intrinsics.parameters.param.cx/LowLevel.calibration.depth_camera_calibration.intrinsics.parameters.param.fx,"tan_horiz_angle"))
+                        metadata.AddMetaDatum(snde.metadatum("ande_array-axis1_inival",(depth_height-LowLevel.calibration.depth_camera_calibration.intrinsics.parameters.param.cy-1)/LowLevel.calibration.depth_camera_calibration.intrinsics.parameters.param.fy,"tan_vert_angle"))
+                        metadata.AddMetaDatum(snde.metadatum("ande_array-axis0_coord","X Position"))
+                        metadata.AddMetaDatum(snde.metadatum("ande_array-axis1_coord","Y Position"))
 
                         if self._depth_data_type == "INT":
-                            metadata.AddMetaDatum(snde.metadatum("nde_array-ampl_units","mm"))
+                            metadata.AddMetaDatum(snde.metadatum("ande_array-ampl_units","mm"))
                             pass
                         else:
                             # we scale by k4a_meters_per_lsb when generating floats
-                            metadata.AddMetaDatum(snde.metadatum("nde_array-ampl_units","m"))
+                            metadata.AddMetaDatum(snde.metadatum("ande_array-ampl_units","m"))
                             pass
 
                         if self._depth_data_mode!="IMAGE": # POINTCLOUD
                             # Enable point cloud style rendering
                             metadata.AddMetaDatum(snde.metadatum("snde_render_goal","SNDE_SRG_POINTCLOUD"))
                             metadata.AddMetaDatum(snde.metadatum("snde_render_goal_3d","SNDE_SRG_POINTCLOUD"))
-                            metadata.AddMetaDatum(snde.metadatum("nde_array-ampl_coord","Position"))
+                            metadata.AddMetaDatum(snde.metadatum("ande_array-ampl_coord","Position"))
                             pass
                         else:
-                            metadata.AddMetaDatum(snde.metadatum("nde_array-ampl_coord","Z Position"))
+                            metadata.AddMetaDatum(snde.metadatum("ande_array-ampl_coord","Z Position"))
                             pass
                         
                         depth_recording_ref.rec.metadata = metadata 
