@@ -1952,10 +1952,10 @@ class K4A(object,metaclass=dgpy_Module):
                         depth_data_array = depth_recording_ref.data()
                         #sys.stderr.write("depth shape=%s; depth dtype=%s; depth nbytes=%d\n" % (str(depth_data_array.shape),str(depth_data_array.dtype),depth_data_array.nbytes))
                         if self._depth_data_type == "INT":
-                            depth_data_array_view= depth_data_array.view(np.int16)
+                            depth_data_array_view= depth_data_array.T.view(np.int16).T
                             pass
                         else: # FLOAT
-                            depth_data_array_view= depth_data_array.view(np.float32)
+                            depth_data_array_view= depth_data_array.T.view(np.float32).T
                             pass
 
                         #sys.stderr.write("depth view shape=%s; depth dtype=%s; depth nbytes=%d\n" % (str(depth_data_array_view.shape),str(depth_data_array_view.dtype),depth_data_array_view.nbytes))
