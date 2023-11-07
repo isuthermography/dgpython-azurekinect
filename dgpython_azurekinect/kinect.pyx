@@ -49,6 +49,9 @@ import numpy as np
 cimport numpy as np
 from numpy cimport NPY_SHORT,PyArray_New,import_array,npy_intp
 
+
+orient_dtype = [('offset', '<f4', (4,)), ('quat', '<f4', (4,))]
+
 import_array()
 
 cdef extern from "k4a/k4a.h" nogil:
@@ -1015,7 +1018,66 @@ cdef class K4ALowLevel:
             return (1024,1024)
         pass
     
+
+    def get_calibration_extrinsics(self,unsigned source,unsigned target):
+        cdef k4a_color_resolution_t color_res
+        cdef k4a_result_t errcode
+        cdef k4a_calibration_t calibration
+        cdef float rotation[9];
+        cdef float translation[3];
         
+        if source >= <unsigned>K4A_CALIBRATION_TYPE_NUM:
+            raise ValueError("Invalid calibration source %u (see K4A_CALIBRATION_TYPE_xxxxx)" % (source))
+
+        if target >= <unsigned>K4A_CALIBRATION_TYPE_NUM:
+            raise ValueError("Invalid calibration target %u (see K4A_CALIBRATION_TYPE_xxxxx)" % (target))
+
+        with self.config_lock:
+            color_res = self.config.color_resolution
+            # If the color resolution is not set, the k4a_device_get_calibration() will fail to get the calibration extrinsics for the color camera. Since calibration extrinsics do not depend on color resolution, we arbitrarily substitute 720p.
+            if color_res == K4A_COLOR_RESOLUTION_OFF:
+                color_res = K4A_COLOR_RESOLUTION_720P
+                pass
+            errcode = k4a_device_get_calibration(self.dev,self.config.depth_mode,color_res,&calibration)
+            pass
+
+        if errcode != K4A_RESULT_SUCCEEDED:
+            raise IOError("Error obtaining Azure Kinect device calibration (device serial %s)" % (self.serial_number))
+
+        rotation = calibration.extrinsics[source][target].rotation
+        translation = calibration.extrinsics[source][target].translation
+        
+        rotmtx = np.zeros((4,4),dtype='f',order="F")
+        rotmtx[0,0] = rotation[0]
+        rotmtx[0,1] = rotation[1]
+        rotmtx[0,2] = rotation[2]
+        rotmtx[1,0] = rotation[3]
+        rotmtx[1,1] = rotation[4]
+        rotmtx[1,2] = rotation[5]
+        rotmtx[2,0] = rotation[6]
+        rotmtx[2,1] = rotation[7]
+        rotmtx[2,2] = rotation[8]
+
+        rotmtx[0,3] = translation[0]
+        rotmtx[1,3] = translation[1]
+        rotmtx[2,3] = translation[2]
+        rotmtx[3,3] = 1.0
+
+        k4a_targetak_over_sourceak = snde.rotmtx_build_orientation(rotmtx.ravel(order="F"))
+        # This transformation is in the Azure Kinect coordinate convention. But we want it
+        # in terms of spatialnde2 coordinates which are (a) rotated 180 deg around x, and
+        # (b) offsets in meters instead of mm.
+
+        gl_over_ak = np.array(((0.0,0.0,0.0,0.0),(1.0,0.0,0.0,0.0)),dtype=orient_dtype) # pi rotation about x axis
+        ak_over_gl = snde.orientation_inverse(gl_over_ak) # not actually different
+
+        k4a_targetgl_over_sourcegl_mm = snde.orientation_orientation_multiply(gl_over_ak,snde.orientation_orientation_multiply(k4a_targetak_over_sourceak,ak_over_gl))
+        
+        k4a_targetgl_over_sourcegl = k4a_targetgl_over_sourcegl_mm.copy()
+        k4a_targetgl_over_sourcegl["offset"] = k4a_targetgl_over_sourcegl["offset"]/1000.0
+
+        return k4a_targetgl_over_sourcegl
+    
     def start_capture(self):
         cdef k4a_result_t errcode
 
@@ -1052,19 +1114,22 @@ cdef class K4ALowLevel:
         cdef k4a_capture_t capt=NULL;
         
         assert(self.capture_running)
-
-        with nogil: 
+        #sys.stderr.write("kinect.pyx k4a_device_get_capture start\n")
+        with nogil:
             waitresult = k4a_device_get_capture(self.dev,&capt,timeout_ms)
             pass
+        #sys.stderr.write("kinect.pyx k4a_device_get_capture end : waitresult = %d\n"%waitresult)
 
         monotonic_timestamp = time.monotonic()
         os_timestamp = time.time()
         
         if waitresult == K4A_WAIT_RESULT_TIMEOUT:
+            #sys.stderr.write("kinect.pyx : got K4A_WAIT_RESULT_TIMEOUT\n")
             return None
         elif waitresult == K4A_WAIT_RESULT_FAILED:
             k4a_device_stop_cameras(self.dev)  # per SDK instructions, issue stop instruction after error return from k4a_device_get_capture
             self.capture_running=False
+            #sys.stderr.write("kinect.pyx : got K4A_WAIT_RESULT_FAILED LowLevel.capture_running=False\n")
             raise IOError("k4a_device_get_capture failed on serial number %s" % (self.serial_number))
         
         assert(waitresult==K4A_WAIT_RESULT_SUCCEEDED)
@@ -1073,10 +1138,13 @@ cdef class K4ALowLevel:
     
     def halt_from_other_thread(self):
         # Per the documentation, this will make k4a_device_get_capture exit with an error message
+        #sys.stderr.write("kinect.pyx : halt_from_other_thread was called : self.capture_running = %s\n"%(str(self.capture_running)))
         k4a_device_stop_cameras(self.dev)
 
         pass
-    
+    def abort(self):
+        self.capture_running = False
+        pass
     pass
 
 
@@ -1136,6 +1204,54 @@ cdef class K4AFileLowLevel:
             self.playback=NULL
             pass
         pass
+
+
+    def get_calibration_extrinsics(self,unsigned source,unsigned target):
+        cdef float rotation[9];
+        cdef float translation[3];
+        
+        if source >= <unsigned>K4A_CALIBRATION_TYPE_NUM:
+            raise ValueError("Invalid calibration source %u (see K4A_CALIBRATION_TYPE_xxxxx)" % (source))
+
+        if target >= <unsigned>K4A_CALIBRATION_TYPE_NUM:
+            raise ValueError("Invalid calibration target %u (see K4A_CALIBRATION_TYPE_xxxxx)" % (target))
+
+
+
+        rotation = self.calibration.extrinsics[source][target].rotation
+        translation = self.calibration.extrinsics[source][target].translation
+        
+        rotmtx = np.zeros((4,4),dtype='f',order="F")
+        rotmtx[0,0] = rotation[0]
+        rotmtx[0,1] = rotation[1]
+        rotmtx[0,2] = rotation[2]
+        rotmtx[1,0] = rotation[3]
+        rotmtx[1,1] = rotation[4]
+        rotmtx[1,2] = rotation[5]
+        rotmtx[2,0] = rotation[6]
+        rotmtx[2,1] = rotation[7]
+        rotmtx[2,2] = rotation[8]
+
+        rotmtx[0,3] = translation[0]
+        rotmtx[1,3] = translation[1]
+        rotmtx[2,3] = translation[2]
+        rotmtx[3,3] = 1.0
+
+        k4a_targetak_over_sourceak = snde.rotmtx_build_orientation(rotmtx.ravel(order="F"))
+        # This transformation is in the Azure Kinect coordinate convention. But we want it
+        # in terms of spatialnde2 coordinates which are (a) rotated 180 deg around x, and
+        # (b) offsets in meters instead of mm.
+
+        gl_over_ak = np.array(((0.0,0.0,0.0,0.0),(1.0,0.0,0.0,0.0)),dtype=orient_dtype) # pi rotation about x axis
+        ak_over_gl = snde.orientation_inverse(gl_over_ak) # not actually different
+
+        k4a_targetgl_over_sourcegl_mm = snde.orientation_orientation_multiply(gl_over_ak,snde.orientation_orientation_multiply(k4a_targetak_over_sourceak,ak_over_gl))
+        
+        k4a_targetgl_over_sourcegl = k4a_targetgl_over_sourcegl_mm.copy()
+        k4a_targetgl_over_sourcegl["offset"] = k4a_targetgl_over_sourcegl["offset"]/1000.0
+
+        return k4a_targetgl_over_sourcegl
+
     
     def get_running_depth_pixel_shape(self):
         assert(self.capture_running)
@@ -1648,7 +1764,9 @@ class K4A(object,metaclass=dgpy_Module):
         while True:
 
             with self._capture_running_cond:
+                #sys.stderr.write("kinect.pyx : About to call capture_running_cond.wait_for, LowLevel.capture_running = %s\n"%str(LowLevel.capture_running))
                 self._capture_running_cond.wait_for(lambda: self._capture_start or self._capture_exit)
+                #sys.stderr.write("kinect.pyx : capture_running_cond.wait_for has returned LowLevel.capture_running = %s self._capture_start = %s\n"%(str(LowLevel.capture_running),str(self._capture_start)))
 
                 if self._capture_start:
                     try:
@@ -1672,7 +1790,7 @@ class K4A(object,metaclass=dgpy_Module):
                 return
 
             while self._capture_running:  # Other threads not allowed to change this variable so we are safe to read it
-
+                aborted = False
                 with self._capture_running_cond:
                     previous_globalrev_complete_waiter = self._previous_globalrev_complete_waiter
                     # Check for stop request
@@ -1680,10 +1798,13 @@ class K4A(object,metaclass=dgpy_Module):
                         self._capture_running=False
                         self._capture_stop=False
                         self._capture_running_cond.notify_all()
-                        break
+                        aborted = True
+                        pass
                     pass
-                
                     
+                if aborted:
+                    LowLevel.abort()
+                    break
                 
                 if previous_globalrev_complete_waiter is not None:
 
@@ -1692,6 +1813,7 @@ class K4A(object,metaclass=dgpy_Module):
                     # This can be interrupted from the other thread
                     # by calling previous_globalrev_complete_waiter.interrupt()
                     interrupted = previous_globalrev_complete_waiter.wait_interruptable()
+                    aborted = False
                     with self._capture_running_cond:
                         if not interrupted:
                             # waiter satisfied
@@ -1703,11 +1825,14 @@ class K4A(object,metaclass=dgpy_Module):
                             self._capture_running=False
                             self._capture_stop=False
                             self._capture_running_cond.notify_all()
-                            break
-
-                        if interrupted:
-                            continue  # So we can wait again if we were interrupted and somehow didn't have a stop request
+                            aborted = True
+                            pass
                         pass
+                    if aborted:
+                        LowLevel.abort()
+                        break
+                    if interrupted:
+                        continue  # So we can wait again if we were interrupted and somehow didn't have a stop request
 
                     
                     pass
@@ -1726,6 +1851,9 @@ class K4A(object,metaclass=dgpy_Module):
                             self._capture_stop = False
                             pass
                         self._capture_running_cond.notify_all()
+                        if LowLevel.capture_running:
+                            LowLevel.abort()
+                            pass
                         pass
                     if not intentional_stop:
                         snde.snde_warning(str(e)) # print out warning message
@@ -1744,19 +1872,19 @@ class K4A(object,metaclass=dgpy_Module):
                     if self.result_depth_channel_ptr is not None:
                         if self._depth_data_mode == "IMAGE":
                             if self._depth_data_type == "INT":
-                                depth_recording_ref = snde.create_recording_ref(self.recdb,self.result_depth_channel_ptr,self,snde.SNDE_RTN_INT16)
+                                depth_recording_ref = snde.create_ndarray_ref(self.recdb,self.result_depth_channel_ptr,self,snde.SNDE_RTN_INT16)
                                 pass
                             else: # FLOAT
-                                depth_recording_ref = snde.create_recording_ref(self.recdb,self.result_depth_channel_ptr,self,snde.SNDE_RTN_FLOAT32)
+                                depth_recording_ref = snde.create_ndarray_ref(self.recdb,self.result_depth_channel_ptr,self,snde.SNDE_RTN_FLOAT32)
                                 pass
 
                             pass
                         else: #  self._depth_data_mode == "POINTCLOUD":
                             if self._depth_data_type == "INT":
-                                depth_recording_ref = snde.create_recording_ref(self.recdb,self.result_depth_channel_ptr,self,snde.SNDE_RTN_SNDE_COORD3_INT16)
+                                depth_recording_ref = snde.create_ndarray_ref(self.recdb,self.result_depth_channel_ptr,self,snde.SNDE_RTN_SNDE_COORD3_INT16)
                                 pass
                             else: # FLOAT
-                                depth_recording_ref = snde.create_recording_ref(self.recdb,self.result_depth_channel_ptr,self,snde.SNDE_RTN_SNDE_COORD3)
+                                depth_recording_ref = snde.create_ndarray_ref(self.recdb,self.result_depth_channel_ptr,self,snde.SNDE_RTN_SNDE_COORD3)
                                 pass
                             pass
                         pass
@@ -1766,6 +1894,8 @@ class K4A(object,metaclass=dgpy_Module):
                         pass
 
                     depth_recording_ref.rec.recording_needs_dynamic_metadata()
+
+                    assert(self._previous_globalrev_complete_waiter is None)
 
                     transobj = transact.run_in_background_and_end_transaction(self.dynamic_metadata.Snapshot().Acquire,(depth_recording_ref.rec,))
                     if self._calcsync:
@@ -1787,31 +1917,30 @@ class K4A(object,metaclass=dgpy_Module):
                         
                                                
                         metadata = snde.constructible_metadata()
-                        metadata.AddMetaDatum(snde.metadatum("nde_array-axis0_step",1.0/LowLevel.calibration.depth_camera_calibration.intrinsics.parameters.param.fx))
-                        metadata.AddMetaDatum(snde.metadatum("nde_array-axis1_step",-1.0/LowLevel.calibration.depth_camera_calibration.intrinsics.parameters.param.fy)) # negative step because our coordinate frames start at lower left corner but camera data starts at upper left
+                        metadata.AddMetaDatum(snde.metadatum("ande_array-axis0_scale",1.0/LowLevel.calibration.depth_camera_calibration.intrinsics.parameters.param.fx,"tan_horiz_angle"))
+                        metadata.AddMetaDatum(snde.metadatum("ande_array-axis1_scale",-1.0/LowLevel.calibration.depth_camera_calibration.intrinsics.parameters.param.fy,"tan_vert_angle")) # negative step because our coordinate frames start at lower left corner but camera data starts at upper left
                         #sys.stderr.write("Azure Kinect: dy=%f\n" %(1.0/LowLevel.calibration.depth_camera_calibration.intrinsics.parameters.param.fy))
-                        metadata.AddMetaDatum(snde.metadatum("nde_array-axis0_inival",-LowLevel.calibration.depth_camera_calibration.intrinsics.parameters.param.cx/LowLevel.calibration.depth_camera_calibration.intrinsics.parameters.param.fx))
-                        metadata.AddMetaDatum(snde.metadatum("nde_array-axis1_inival",(depth_height-LowLevel.calibration.depth_camera_calibration.intrinsics.parameters.param.cy-1)/LowLevel.calibration.depth_camera_calibration.intrinsics.parameters.param.fy))
-                        metadata.AddMetaDatum(snde.metadatum("nde_array-axis0_coord","X Position"))
-                        metadata.AddMetaDatum(snde.metadatum("nde_array-axis1_coord","Y Position"))
-                        metadata.AddMetaDatum(snde.metadatum("nde_array-axis0_units","tan_horiz_angle"))
-                        metadata.AddMetaDatum(snde.metadatum("nde_array-axis1_units","tan_vert_angle"))
+                        metadata.AddMetaDatum(snde.metadatum("ande_array-axis0_offset",-LowLevel.calibration.depth_camera_calibration.intrinsics.parameters.param.cx/LowLevel.calibration.depth_camera_calibration.intrinsics.parameters.param.fx,"tan_horiz_angle"))
+                        metadata.AddMetaDatum(snde.metadatum("ande_array-axis1_offset",(depth_height-LowLevel.calibration.depth_camera_calibration.intrinsics.parameters.param.cy-1)/LowLevel.calibration.depth_camera_calibration.intrinsics.parameters.param.fy,"tan_vert_angle"))
+                        metadata.AddMetaDatum(snde.metadatum("ande_array-axis0_coord","X Position"))
+                        metadata.AddMetaDatum(snde.metadatum("ande_array-axis1_coord","Y Position"))
+                      
                         if self._depth_data_type == "INT":
-                            metadata.AddMetaDatum(snde.metadatum("nde_array-ampl_units","mm"))
+                            metadata.AddMetaDatum(snde.metadatum("ande_array-ampl_units","mm"))
                             pass
                         else:
                             # we scale by k4a_meters_per_lsb when generating floats
-                            metadata.AddMetaDatum(snde.metadatum("nde_array-ampl_units","m"))
+                            metadata.AddMetaDatum(snde.metadatum("ande_array-ampl_units","m"))
                             pass
 
                         if self._depth_data_mode!="IMAGE": # POINTCLOUD
                             # Enable point cloud style rendering
                             metadata.AddMetaDatum(snde.metadatum("snde_render_goal","SNDE_SRG_POINTCLOUD"))
                             metadata.AddMetaDatum(snde.metadatum("snde_render_goal_3d","SNDE_SRG_POINTCLOUD"))
-                            metadata.AddMetaDatum(snde.metadatum("nde_array-ampl_coord","Position"))
+                            metadata.AddMetaDatum(snde.metadatum("ande_array-ampl_coord","Position"))
                             pass
                         else:
-                            metadata.AddMetaDatum(snde.metadatum("nde_array-ampl_coord","Z Position"))
+                            metadata.AddMetaDatum(snde.metadatum("ande_array-ampl_coord","Z Position"))
                             pass
                         
                         depth_recording_ref.rec.metadata = metadata 
@@ -1823,10 +1952,10 @@ class K4A(object,metaclass=dgpy_Module):
                         depth_data_array = depth_recording_ref.data()
                         #sys.stderr.write("depth shape=%s; depth dtype=%s; depth nbytes=%d\n" % (str(depth_data_array.shape),str(depth_data_array.dtype),depth_data_array.nbytes))
                         if self._depth_data_type == "INT":
-                            depth_data_array_view= depth_data_array.view(np.int16)
+                            depth_data_array_view= depth_data_array.T.view(np.int16).T
                             pass
                         else: # FLOAT
-                            depth_data_array_view= depth_data_array.view(np.float32)
+                            depth_data_array_view= depth_data_array.T.view(np.float32).T
                             pass
 
                         #sys.stderr.write("depth view shape=%s; depth dtype=%s; depth nbytes=%d\n" % (str(depth_data_array_view.shape),str(depth_data_array_view.dtype),depth_data_array_view.nbytes))
@@ -2167,19 +2296,19 @@ class K4AFile(object,metaclass=dgpy_Module):
                     if self.result_depth_channel_ptr is not None:
                         if self._depth_data_mode == "IMAGE":
                             if self._depth_data_type == "INT":
-                                depth_recording_ref = snde.create_recording_ref(self.recdb,self.result_depth_channel_ptr,self,snde.SNDE_RTN_INT16)
+                                depth_recording_ref = snde.create_ndarray_ref(self.recdb,self.result_depth_channel_ptr,self,snde.SNDE_RTN_INT16)
                                 pass
                             else: # FLOAT
-                                depth_recording_ref = snde.create_recording_ref(self.recdb,self.result_depth_channel_ptr,self,snde.SNDE_RTN_FLOAT32)
+                                depth_recording_ref = snde.create_ndarray_ref(self.recdb,self.result_depth_channel_ptr,self,snde.SNDE_RTN_FLOAT32)
                                 pass
 
                             pass
                         else: #  self._depth_data_mode == "POINTCLOUD":
                             if self._depth_data_type == "INT":
-                                depth_recording_ref = snde.create_recording_ref(self.recdb,self.result_depth_channel_ptr,self,snde.SNDE_RTN_SNDE_COORD3_INT16)
+                                depth_recording_ref = snde.create_ndarray_ref(self.recdb,self.result_depth_channel_ptr,self,snde.SNDE_RTN_SNDE_COORD3_INT16)
                                 pass
                             else: # FLOAT
-                                depth_recording_ref = snde.create_recording_ref(self.recdb,self.result_depth_channel_ptr,self,snde.SNDE_RTN_SNDE_COORD3)
+                                depth_recording_ref = snde.create_ndarray_ref(self.recdb,self.result_depth_channel_ptr,self,snde.SNDE_RTN_SNDE_COORD3)
                                 pass
                             pass
                         pass
@@ -2202,31 +2331,30 @@ class K4AFile(object,metaclass=dgpy_Module):
                         
                                                
                         metadata = snde.constructible_metadata()
-                        metadata.AddMetaDatum(snde.metadatum("nde_array-axis0_step",1.0/LowLevel.calibration.depth_camera_calibration.intrinsics.parameters.param.fx))
-                        metadata.AddMetaDatum(snde.metadatum("nde_array-axis1_step",-1.0/LowLevel.calibration.depth_camera_calibration.intrinsics.parameters.param.fy)) # negative step because our coordinate frames start at lower left corner but camera data starts at upper left
+                        metadata.AddMetaDatum(snde.metadatum("ande_array-axis0_scale",1.0/LowLevel.calibration.depth_camera_calibration.intrinsics.parameters.param.fx,"tan_horiz_angle"))
+                        metadata.AddMetaDatum(snde.metadatum("ande_array-axis1_scale",-1.0/LowLevel.calibration.depth_camera_calibration.intrinsics.parameters.param.fy,"tan_vert_angle")) # negative step because our coordinate frames start at lower left corner but camera data starts at upper left
                         #sys.stderr.write("Azure Kinect: dy=%f\n" %(1.0/LowLevel.calibration.depth_camera_calibration.intrinsics.parameters.param.fy))
-                        metadata.AddMetaDatum(snde.metadatum("nde_array-axis0_inival",-LowLevel.calibration.depth_camera_calibration.intrinsics.parameters.param.cx/LowLevel.calibration.depth_camera_calibration.intrinsics.parameters.param.fx))
-                        metadata.AddMetaDatum(snde.metadatum("nde_array-axis1_inival",(depth_height-LowLevel.calibration.depth_camera_calibration.intrinsics.parameters.param.cy-1)/LowLevel.calibration.depth_camera_calibration.intrinsics.parameters.param.fy))
-                        metadata.AddMetaDatum(snde.metadatum("nde_array-axis0_coord","X Position"))
-                        metadata.AddMetaDatum(snde.metadatum("nde_array-axis1_coord","Y Position"))
-                        metadata.AddMetaDatum(snde.metadatum("nde_array-axis0_units","tan_horiz_angle"))
-                        metadata.AddMetaDatum(snde.metadatum("nde_array-axis1_units","tan_vert_angle"))
+                        metadata.AddMetaDatum(snde.metadatum("ande_array-axis0_offset",-LowLevel.calibration.depth_camera_calibration.intrinsics.parameters.param.cx/LowLevel.calibration.depth_camera_calibration.intrinsics.parameters.param.fx,"tan_horiz_angle"))
+                        metadata.AddMetaDatum(snde.metadatum("ande_array-axis1_offset",(depth_height-LowLevel.calibration.depth_camera_calibration.intrinsics.parameters.param.cy-1)/LowLevel.calibration.depth_camera_calibration.intrinsics.parameters.param.fy,"tan_vert_angle"))
+                        metadata.AddMetaDatum(snde.metadatum("ande_array-axis0_coord","X Position"))
+                        metadata.AddMetaDatum(snde.metadatum("ande_array-axis1_coord","Y Position"))
+
                         if self._depth_data_type == "INT":
-                            metadata.AddMetaDatum(snde.metadatum("nde_array-ampl_units","mm"))
+                            metadata.AddMetaDatum(snde.metadatum("ande_array-ampl_units","mm"))
                             pass
                         else:
                             # we scale by k4a_meters_per_lsb when generating floats
-                            metadata.AddMetaDatum(snde.metadatum("nde_array-ampl_units","m"))
+                            metadata.AddMetaDatum(snde.metadatum("ande_array-ampl_units","m"))
                             pass
 
                         if self._depth_data_mode!="IMAGE": # POINTCLOUD
                             # Enable point cloud style rendering
                             metadata.AddMetaDatum(snde.metadatum("snde_render_goal","SNDE_SRG_POINTCLOUD"))
                             metadata.AddMetaDatum(snde.metadatum("snde_render_goal_3d","SNDE_SRG_POINTCLOUD"))
-                            metadata.AddMetaDatum(snde.metadatum("nde_array-ampl_coord","Position"))
+                            metadata.AddMetaDatum(snde.metadatum("ande_array-ampl_coord","Position"))
                             pass
                         else:
-                            metadata.AddMetaDatum(snde.metadatum("nde_array-ampl_coord","Z Position"))
+                            metadata.AddMetaDatum(snde.metadatum("ande_array-ampl_coord","Z Position"))
                             pass
                         
                         depth_recording_ref.rec.metadata = metadata 
