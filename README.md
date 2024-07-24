@@ -19,21 +19,30 @@ the same Python environment you are using for SpatialNDE2 and
 Dataguzzler-Python
 
 To tell the setup script where to find the Azure Kinect SDK files,
-use the --with-azurekinect parameter to the "build" and "install" steps,
-e.g.
+you need to either modify setup.cfg configuring the path to the SDK
+in the with-azurekinect parameter, or you can create a new
+setup_local.cfg (similar to setup.cfg) with your path configured.
+If you do the latter, you must set the DIST_EXTRA_CONFIG environment
+variable to point at your setup_local.cfg, as illustrated in
+setupcmd.sh (Linux) and setupcmd.bat (Windows).
 
-python setup.py build --with-azurekinect=/usr/local/src/k4a-1.4.1_ubuntu1804
-then (as root if needed)
-python setup.py install --with-azurekinect=/usr/local/src/k4a-1.4.1_ubuntu1804
+To perform the install, if you modified setup.cfg you can just
+(possibly as root or administrator):
 
-It is helpful to put these commands into a script, e.g. setupcmd.sh (Linux):
+pip install --no-deps --no-build-isolation .
 
-#!/bin/bash
-python setup.py build --with-azurekinect=/usr/local/src/k4a-1.4.1_ubuntu1804 && sudo python setup.py install --with-azurekinect=/usr/local/src/k4a-1.4.1_ubuntu1804
+If you created setup_local.cfg, instead run:
 
-or setupcmd.bat (Windows):
-python setup.py build --with-azurekinect="c:\Program Files\Azure Kinect SDK v1.4.1"
-python setup.py install --with-azurekinect="c:\Program Files\Azure Kinect SDK v1.4.1"
+sudo ./setupcmd.sh   (Linux; central install)
+
+or,
+
+./setupcmd.sh   (Linux; user install)
+
+or,
+
+.\setupcmd.bat  (Windows)  
+
 
 
 NOTE: If you upgrade spatialnde2 it is highly recommended that, after

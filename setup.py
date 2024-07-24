@@ -5,8 +5,8 @@ import shutil
 import glob
 import numpy as np
 from setuptools import setup,Extension
-from distutils.command.build import build
-from distutils.command.install import install
+from setuptools.command.build import build
+from setuptools.command.install import install
 
 from Cython.Build import cythonize
 import dataguzzler_python

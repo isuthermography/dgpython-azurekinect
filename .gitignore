@@ -6,5 +6,7 @@ build
 dist
 dataguzzler_python.egg-info
 dgpython_azurekinect/kinect.cpp
-setupcmd.sh
-setupcmd.bat
+setup_local.cfg
+dgpython_azurekinect/_version.py
+
+
