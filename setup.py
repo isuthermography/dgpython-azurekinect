@@ -9,7 +9,7 @@ from setuptools.command.build import build
 from setuptools.command.install import install
 
 from Cython.Build import cythonize
-import dataguzzler_python
+#import dataguzzler_python
 
 
 ext_modules=cythonize(Extension("dgpython_azurekinect.kinect",

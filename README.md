@@ -10,7 +10,9 @@ Installation
 ------------
 
 This package requires the Azure Kinect SDK from Microsoft (uses the C
-API), Dataguzzler-Python, Cython, and SpatialNDE2.
+API), Dataguzzler-Python, Cython, and SpatialNDE2. You also need
+some basic Python packages: setuptools, setuptools_scm,
+build, wheel, and numpy.
 
 The dgpython-azurekinect package installs with the usual "python
 setup.py install", but you probably need to tell it where to find the
@@ -20,7 +22,12 @@ Dataguzzler-Python
 
 To tell the setup script where to find the Azure Kinect SDK files,
 you need to either modify setup.cfg configuring the path to the SDK
-in the with-azurekinect parameter, or you can create a new
+in the with-azurekinect parameter:
+
+[build]
+with-azurekinect=/usr/local/src/k4a-1.4.1_ubuntu1804
+
+or you can create a new
 setup_local.cfg (similar to setup.cfg) with your path configured.
 If you do the latter, you must set the DIST_EXTRA_CONFIG environment
 variable to point at your setup_local.cfg, as illustrated in
