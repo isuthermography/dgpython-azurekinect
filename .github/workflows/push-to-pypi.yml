@@ -47,7 +47,7 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: pypi
-      url: https://pypi.org/p/dataguzzler-python
+      url: https://pypi.org/p/dgpython-azurekinect
     permissions:
       id-token: write  # IMPORTANT: mandatory for trusted publishing
 

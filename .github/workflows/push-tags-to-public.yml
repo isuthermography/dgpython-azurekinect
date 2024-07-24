@@ -23,7 +23,7 @@ jobs:
           export GIT_SSH_COMMAND="ssh -i $HOME/.ssh/id_ed25519 -o UserKnownHostsFile=$HOME/.ssh/known_hosts"
           git config --global user.email "noreply@noreply"
           git config --global user.name "AutoPush"
-          git remote add public git@github.com:isuthermography/dataguzzler-python.git
+          git remote add public git@github.com:isuthermography/dgpython-azurekinect.git
           git fetch --unshallow origin
           git push public --tags
 
