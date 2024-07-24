@@ -1,0 +1,19 @@
+[project]
+name = 'dgpython-azurekinect'
+dynamic = ['version','authors','description','urls']
+requires-python = ">= 3.8"
+readme = "README.md"
+classifiers = [
+	    "Development Status :: 3 - Alpha",
+	    "License :: OSI Approved :: BSD License"
+	    ]
+
+#[project.scripts]
+#dataguzzler-python = "dataguzzler_python.bin.dataguzzler_python:main"
+
+[build-system]
+requires = ["setuptools>=64","numpy", "setuptools_scm[toml]>=5", "Cython"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools_scm]
+version_file = "dgpython_azurekinect/_version.py"
