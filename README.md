@@ -4,6 +4,7 @@ dgpython-azurekinect
 This is a Dataguzzler-Python/SpatialNDE2 driver for the Microsoft
 Azure Kinect ("Kinect for Azure"/K4A) depth camera.
 
+Note that this version requires SpatialNDE2 version 0.8.0 or later.
 
 
 Installation
@@ -14,8 +15,7 @@ API), Dataguzzler-Python, Cython, and SpatialNDE2. You also need
 some basic Python packages: setuptools, setuptools_scm,
 build, wheel, and numpy.
 
-The dgpython-azurekinect package installs with the usual "python
-setup.py install", but you probably need to tell it where to find the
+The dgpython-azurekinect package installs with the usual "pip install .", but you probably need to tell it where to find the
 Azure Kinect SDK files (see below). Make sure that you install into
 the same Python environment you are using for SpatialNDE2 and
 Dataguzzler-Python

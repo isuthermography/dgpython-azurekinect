@@ -1709,11 +1709,11 @@ class K4A(object,metaclass=dgpy_Module):
         transact = recdb.start_transaction()
 
         if result_depth_channel_name is not None:
-            self.result_depth_channel_ptr = recdb.reserve_channel(snde.channelconfig(result_depth_channel_name,module_name,self,False))
+            self.result_depth_channel_ptr = recdb.reserve_channel(transact,snde.channelconfig(result_depth_channel_name,module_name,False))
             pass
 
         if result_color_channel_name is not None: 
-            self.result_color_channel_ptr = recdb.reserve_channel(snde.channelconfig(result_color_channel_name,module_name,self,False))
+            self.result_color_channel_ptr = recdb.reserve_channel(transact,snde.channelconfig(result_color_channel_name,module_name,False))
             pass
         
         transact.end_transaction()
@@ -1872,19 +1872,19 @@ class K4A(object,metaclass=dgpy_Module):
                     if self.result_depth_channel_ptr is not None:
                         if self._depth_data_mode == "IMAGE":
                             if self._depth_data_type == "INT":
-                                depth_recording_ref = snde.create_ndarray_ref(self.recdb,self.result_depth_channel_ptr,self,snde.SNDE_RTN_INT16)
+                                depth_recording_ref = snde.create_ndarray_ref(transact,self.result_depth_channel_ptr,snde.SNDE_RTN_INT16)
                                 pass
                             else: # FLOAT
-                                depth_recording_ref = snde.create_ndarray_ref(self.recdb,self.result_depth_channel_ptr,self,snde.SNDE_RTN_FLOAT32)
+                                depth_recording_ref = snde.create_ndarray_ref(transact,self.result_depth_channel_ptr,snde.SNDE_RTN_FLOAT32)
                                 pass
 
                             pass
                         else: #  self._depth_data_mode == "POINTCLOUD":
                             if self._depth_data_type == "INT":
-                                depth_recording_ref = snde.create_ndarray_ref(self.recdb,self.result_depth_channel_ptr,self,snde.SNDE_RTN_SNDE_COORD3_INT16)
+                                depth_recording_ref = snde.create_ndarray_ref(transact,self.result_depth_channel_ptr,snde.SNDE_RTN_SNDE_COORD3_INT16)
                                 pass
                             else: # FLOAT
-                                depth_recording_ref = snde.create_ndarray_ref(self.recdb,self.result_depth_channel_ptr,self,snde.SNDE_RTN_SNDE_COORD3)
+                                depth_recording_ref = snde.create_ndarray_ref(transact,self.result_depth_channel_ptr,snde.SNDE_RTN_SNDE_COORD3)
                                 pass
                             pass
                         pass
@@ -1949,7 +1949,7 @@ class K4A(object,metaclass=dgpy_Module):
                         depth_recording_ref.rec.mark_metadata_done()
                         depth_recording_ref.allocate_storage([depth_width,depth_height],True) # Fortran mode
 
-                        depth_data_array = depth_recording_ref.data()
+                        depth_data_array = depth_recording_ref.data
                         #sys.stderr.write("depth shape=%s; depth dtype=%s; depth nbytes=%d\n" % (str(depth_data_array.shape),str(depth_data_array.dtype),depth_data_array.nbytes))
                         if self._depth_data_type == "INT":
                             depth_data_array_view= depth_data_array.T.view(np.int16).T
@@ -2196,11 +2196,11 @@ class K4AFile(object,metaclass=dgpy_Module):
         transact = recdb.start_transaction()
 
         if result_depth_channel_name is not None:
-            self.result_depth_channel_ptr = recdb.reserve_channel(snde.channelconfig(result_depth_channel_name,module_name,self,False))
+            self.result_depth_channel_ptr = recdb.reserve_channel(transact,snde.channelconfig(result_depth_channel_name,module_name,self,False))
             pass
 
         if result_color_channel_name is not None: 
-            self.result_color_channel_ptr = recdb.reserve_channel(snde.channelconfig(result_color_channel_name,module_name,self,False))
+            self.result_color_channel_ptr = recdb.reserve_channel(transact,snde.channelconfig(result_color_channel_name,module_name,self,False))
             pass
         
         transact.end_transaction()
@@ -2296,19 +2296,19 @@ class K4AFile(object,metaclass=dgpy_Module):
                     if self.result_depth_channel_ptr is not None:
                         if self._depth_data_mode == "IMAGE":
                             if self._depth_data_type == "INT":
-                                depth_recording_ref = snde.create_ndarray_ref(self.recdb,self.result_depth_channel_ptr,self,snde.SNDE_RTN_INT16)
+                                depth_recording_ref = snde.create_ndarray_ref(transact,self.result_depth_channel_ptr,snde.SNDE_RTN_INT16)
                                 pass
                             else: # FLOAT
-                                depth_recording_ref = snde.create_ndarray_ref(self.recdb,self.result_depth_channel_ptr,self,snde.SNDE_RTN_FLOAT32)
+                                depth_recording_ref = snde.create_ndarray_ref(transact,self.result_depth_channel_ptr,snde.SNDE_RTN_FLOAT32)
                                 pass
 
                             pass
                         else: #  self._depth_data_mode == "POINTCLOUD":
                             if self._depth_data_type == "INT":
-                                depth_recording_ref = snde.create_ndarray_ref(self.recdb,self.result_depth_channel_ptr,self,snde.SNDE_RTN_SNDE_COORD3_INT16)
+                                depth_recording_ref = snde.create_ndarray_ref(transact,self.result_depth_channel_ptr,snde.SNDE_RTN_SNDE_COORD3_INT16)
                                 pass
                             else: # FLOAT
-                                depth_recording_ref = snde.create_ndarray_ref(self.recdb,self.result_depth_channel_ptr,self,snde.SNDE_RTN_SNDE_COORD3)
+                                depth_recording_ref = snde.create_ndarray_ref(transact,self.result_depth_channel_ptr,snde.SNDE_RTN_SNDE_COORD3)
                                 pass
                             pass
                         pass
@@ -2317,7 +2317,7 @@ class K4AFile(object,metaclass=dgpy_Module):
                     if self.result_color_channel_ptr is not None:
                         # Assign color_recording ref...
                         pass
-                    globalrev = transact.end_transaction()
+                    globalrev = transact.end_transaction().globalrev()
                     
                     if self.result_depth_channel_ptr is not None:
                         calibration = LowLevel.calibration
@@ -2366,7 +2366,7 @@ class K4AFile(object,metaclass=dgpy_Module):
                         #sys.stderr.write("drr: es=%u, bi=%u nelem=%u nbytes=%u dataaddr=0x%x\n" % (depth_recording_ref.storage.elementsize,depth_recording_ref.storage.base_index,depth_recording_ref.storage.nelem,depth_recording_ref.storage.nelem*depth_recording_ref.storage.elementsize,depth_recording_ref.storage.cur_dataaddr()))
 
                         
-                        depth_data_array = depth_recording_ref.data()
+                        depth_data_array = depth_recording_ref.data
                         
                         #sys.stderr.write("depth shape=%s; depth dtype=%s; depth nbytes=%d\n" % (str(depth_data_array.shape),str(depth_data_array.dtype),depth_data_array.nbytes))
                         if self._depth_data_type == "INT":

@@ -16,4 +16,5 @@ requires = ["setuptools>=64","numpy", "setuptools_scm[toml]>=5", "Cython"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools_scm]
-version_file = "dgpython_azurekinect/_version.py"
+# Note: With recent setuptools we can use "version_file" instead of "write_to"
+write_to = "dgpython_azurekinect/_version.py"
